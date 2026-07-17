@@ -27,7 +27,7 @@ type PageFacts = CrawlPage & {
 };
 
 const WEIGHTS = { "offer-clarity": 35, "cta-clarity": 30, "customer-journey-path": 35 } as const;
-const ADD_TO_CART = /\b(add to (cart|bag|basket)|in winkelmand|toevoegen aan (winkelmand|mandje)|bestel nu|buy now)\b/i;
+const ADD_TO_CART = /\b(add to (?:cart|bag|basket)|in (?:de )?(?:winkelmand(?:je)?|winkelwagen(?:tje)?|mandje)|voeg(?:en)? toe aan (?:de )?(?:winkelmand(?:je)?|winkelwagen(?:tje)?|mandje)|toevoegen aan (?:de )?(?:winkelmand(?:je)?|winkelwagen(?:tje)?|mandje)|bestel nu|buy now)\b/i;
 const COMMERCIAL_ACTION = /\b(start|aanvragen|plan|boek|demo|registreer|inschrijven|bestel|koop|subscribe|sign up|get started|book|schedule|request|apply)\b/i;
 const GENERIC_ACTION = /\b(contact|lees meer|meer informatie|ontdek|bekijk|learn more|read more|discover)\b/i;
 const STOP_WORDS = new Set(["aan", "als", "bij", "de", "een", "en", "for", "het", "in", "met", "of", "onze", "the", "to", "van", "voor", "we", "wij", "your", "uw", "jouw", "op", "is", "zijn", "welkom", "home", "homepage"]);
@@ -49,9 +49,16 @@ function extractClickables(html: string): Clickable[] {
   const pattern = /<(a|button)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(html))) {
-    const text = cleanText(match[3]);
+    const text = cleanText(match[3]) || cleanText(getAttribute(match[2], "aria-label") || getAttribute(match[2], "title") || getAttribute(match[2], "value") || "");
     if (!text || text.length > 90) continue;
     items.push({ text, href: getAttribute(match[2], "href") || getAttribute(match[2], "formaction"), element: match[1].toLowerCase() === "a" ? "link" : "button" });
+  }
+  for (const input of html.matchAll(/<input\b([^>]*)>/gi)) {
+    const type = getAttribute(input[1], "type") || "";
+    if (!/^(?:submit|button|image)$/i.test(type)) continue;
+    const text = cleanText(getAttribute(input[1], "value") || getAttribute(input[1], "aria-label") || getAttribute(input[1], "title") || "");
+    if (!text || text.length > 90) continue;
+    items.push({ text, href: getAttribute(input[1], "formaction"), element: "button" });
   }
   return items;
 }
@@ -128,13 +135,19 @@ function pageType(page: PageFacts, homepage: PageFacts): JourneyPageType {
   if (/\/(checkout|afrekenen|kassa|payment|betalen)(\/|$)/i.test(path)) return "Checkout";
   if (/\/(cart|basket|bag|winkelmand|mandje)(\/|$)/i.test(path)) return "Cart";
   if (/\/(search|zoeken?|zoekresultaten?)(\/|$)/i.test(path)) return "Category";
-  if (!ADD_TO_CART.test(page.bodyText) && (priceCount(page) >= 2 || productStructureCount(page) >= 2)) return "Category";
+  if (!hasAddToCart(page) && (priceCount(page) >= 2 || productStructureCount(page) >= 2)) return "Category";
   if (/\/(collections?|collecties?|categories?|categorie|catalogus|shop|winkel|assortiment)(\/|$)/i.test(path)) return "Category";
-  if (/\/(products?|product|p|artikel|item)\//i.test(path) || ADD_TO_CART.test(page.bodyText)) return "Product";
+  if (/\/(products?|product|p|artikel|item)\//i.test(path) || hasAddToCart(page)) return "Product";
   if (/\/(pricing|prijzen|tarieven|abonnementen)(\/|$)/i.test(path)) return "Pricing";
   if (/\/(diensten?|services?|oplossingen?|solutions?)(\/|$)/i.test(path) || /\b(service|dienst|oplossing)\b/i.test(text)) return "Service";
   if (page.forms.some((form) => form.isConversion)) return "Other";
   return "Other";
+}
+
+function hasAddToCart(page: PageFacts) {
+  return ADD_TO_CART.test(page.bodyText)
+    || page.clickables.some((item) => ADD_TO_CART.test(item.text))
+    || ADD_TO_CART.test(page.html.replace(/[\s_-]+/g, " "));
 }
 
 function linkedAction(from: PageFacts, to: PageFacts) {

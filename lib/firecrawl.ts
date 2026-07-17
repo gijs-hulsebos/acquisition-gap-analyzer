@@ -225,9 +225,9 @@ function representativeKind(link: FirecrawlMapLink, baseUrl: string): JourneyRol
   if (/\/(cart|basket|bag|winkelmand|mandje)(\/|$)/i.test(path)) return "cart";
   if (/\/(booking|boeken|afspraak|demo|aanvraag|application|apply|signup|register|trial)(\/|$)/i.test(path)) return "conversion";
   const priceSignals = text.match(/(?:â‚¬|€|eur\s*)\s*\d{1,5}(?:[.,]\d{2})?|\b\d{1,4}[,.]\d{2}\b/gi) || [];
-  if (priceSignals.length >= 2 && !/\b(in winkelmand|add to cart|toevoegen aan (?:winkelmand|mandje))\b/i.test(text)) return "category";
+  if (priceSignals.length >= 2 && !/\b(add to (?:cart|bag|basket)|in (?:de )?(?:winkelmand(?:je)?|winkelwagen(?:tje)?|mandje)|voeg(?:en)? toe aan (?:de )?(?:winkelmand(?:je)?|winkelwagen(?:tje)?|mandje)|toevoegen aan (?:de )?(?:winkelmand(?:je)?|winkelwagen(?:tje)?|mandje))\b/i.test(text)) return "category";
   if (/\/(collections?|collecties?|categories?|categorie|catalogus|shop|winkel|assortiment|search|zoeken?|zoekresultaten?)(\/|$)/i.test(path) || /\b(collectie|categorie|assortiment|shop all|bekijk alles|zoekresultaten)\b/i.test(text)) return "category";
-  if (/\/(products?|product|p|artikel|item)(\/|$)/i.test(path) || /\b(product detail|artikelnummer|in winkelmand|add to cart|sku)\b/i.test(text) || (PRICE_SIGNAL.test(text) && path.split("/").filter(Boolean).length >= 2)) return "product";
+  if (/\/(products?|product|p|artikel|item)(\/|$)/i.test(path) || /\b(product detail|artikelnummer|in (?:de )?(?:winkelmand(?:je)?|winkelwagen(?:tje)?|mandje)|voeg(?:en)? toe aan (?:de )?(?:winkelmand(?:je)?|winkelwagen(?:tje)?|mandje)|add to (?:cart|bag|basket)|sku)\b/i.test(text) || (PRICE_SIGNAL.test(text) && path.split("/").filter(Boolean).length >= 2)) return "product";
   if (/\/(diensten?|services?|oplossingen?|solutions?)(\/|$)/i.test(path)) return "service";
   if (/\/(pricing|prijzen|tarieven|abonnementen)(\/|$)/i.test(path)) return "pricing";
   return "other";

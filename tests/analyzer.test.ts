@@ -431,6 +431,36 @@ describe("representative customer journeys", () => {
     expect(result.journey.primary.clicksToInterface).toBe(4);
   });
 
+  it("recognizes Dutch Add to cart labels on fetched product pages", () => {
+    const productUrl = "https://winkel.nl/stoommandje-roestvrij-staal.html";
+    const pages = [
+      page({
+        url: "https://winkel.nl/",
+        title: "Winkel",
+        links: [productUrl, "https://winkel.nl/schaaltje-porselein.html"],
+        html: `<h1>Alles voor koken en tafelen</h1><p>Bekijk producten, categorieën en prijzen voor keuken en huis.</p><a href="${productUrl}">Stoommandje 8,95</a><a href="/schaaltje-porselein.html">Schaaltje 6,95</a>`,
+      }),
+      page({
+        url: productUrl,
+        title: "Stoommandje roestvrij staal",
+        links: [],
+        html: '<h1>Stoommandje roestvrij staal</h1><p>Voor koken en stomen, inclusief productinformatie, voorraad en prijs 8,95. Andere producten 6,95 en 12,95.</p><button aria-label="Voeg toe aan winkelmandje"></button>',
+      }),
+      page({
+        url: "https://winkel.nl/schaaltje-porselein.html",
+        title: "Schaaltje porselein",
+        links: [],
+        html: '<h1>Schaaltje porselein</h1><p>Porseleinen schaaltje voor dagelijks tafelen met productinformatie en prijs 6,95. Andere producten 8,95 en 12,95.</p><button>In winkelmandje</button>',
+      }),
+    ];
+
+    const result = analyzeCrawl(pages, "https://winkel.nl/", 250);
+    expect(result.pages.find((item) => item.url === productUrl)?.type).toBe("Product");
+    expect(result.journey.primary.status).toBe("complete");
+    expect(result.journey.primary.clicksToInterface).toBe(3);
+    expect(result.gaps.find((gap) => gap.id === "cta-clarity")?.evidence.some((item) => /Voeg toe aan winkelmandje/i.test(item.statement))).toBe(true);
+  });
+
   it("never starts an ecommerce journey at cart or checkout", () => {
     const pages = [
       page({ url: "https://winkel.nl/", title: "Winkel", links: ["https://winkel.nl/cart", "https://winkel.nl/checkout"], html: '<h1>Winkel</h1><p>Online winkel met een uitgebreid assortiment producten voor wonen, koken en tafelen, met duidelijke informatie voor Nederlandse consumenten.</p><a href="/cart">Winkelmand</a><a href="/checkout">Afrekenen</a>' }),
