@@ -4,6 +4,7 @@ import type {
   CrawlPage,
   Evidence,
   PublicSearchCompetitor,
+  ResolvedCompanyEntity,
 } from "./types";
 
 const CLEAR_CTA = /\b(offerte|prijsopgave|advies|afspraak|consult|plan|boek|bel|demo|aanvragen|start|kennismak|quote|estimate|call|book|schedule|get started|talk to)\b/i;
@@ -51,11 +52,13 @@ function relevantTokens(value: string) {
 
 function competitorName(page: CrawlPage) {
   const fromTitle = page.title.split(/\s+[|—–-]\s+/)[0]?.trim();
-  if (fromTitle && !/^home(page)?$/i.test(fromTitle)) return fromTitle.slice(0, 80);
+  const genericTitle = /^(home(page)?|the best|best |top\s*\d|reviews?|bedrijven in|winkels in)/i;
+  const looksLikeAddress = /\b\d{4}\s?[A-Z]{2}\b|,\s*(the )?nethe/i.test(fromTitle || "");
+  if (fromTitle && fromTitle.length <= 60 && !genericTitle.test(fromTitle) && !looksLikeAddress) return fromTitle;
   return new URL(page.url).hostname.replace(/^www\./, "").split(".")[0].replace(/[-_]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-export function analyzeCompetitorPage(page: CrawlPage, primaryService: string): PublicSearchCompetitor {
+export function analyzeCompetitorPage(page: CrawlPage, identity: string | ResolvedCompanyEntity): PublicSearchCompetitor {
   const facts = inspectPage(page);
   const pageText = cleanText(page.html) || cleanText(page.markdown);
   const trustSignals = detectTrustSignals(pageText, page.html);
@@ -63,7 +66,8 @@ export function analyzeCompetitorPage(page: CrawlPage, primaryService: string): 
   const directContactLink = [...facts.clearCtas, ...facts.genericCtas].find((item) => CONTACT_DESTINATION.test(item.href));
   const conversionPathSteps = facts.forms > 0 ? 0 : directContactLink ? 1 : null;
   const path = new URL(page.url).pathname;
-  const serviceTerms = relevantTokens(primaryService);
+  const serviceContext = typeof identity === "string" ? identity : `${identity.industry} ${identity.offerings.join(" ")}`;
+  const serviceTerms = relevantTokens(serviceContext);
   const serviceHaystack = `${path} ${page.title} ${page.description}`.toLowerCase();
   const dedicatedServicePage = path !== "/" && !NON_SERVICE_PATH.test(path) && serviceTerms.some((term) => serviceHaystack.includes(term));
   const ctaText = facts.clearCtas[0]?.text || facts.genericCtas[0]?.text;
@@ -128,7 +132,7 @@ function competitorEvidence(competitor: PublicSearchCompetitor, statement: strin
 
 /** Adds comparison evidence only to findings that already exist. */
 export function applyCompetitorAnalysis(result: AnalysisResult, pages: CrawlPage[]): AnalysisResult {
-  const competitors = pages.slice(0, 2).map((page) => analyzeCompetitorPage(page, result.primaryService));
+  const competitors = pages.slice(0, 2).map((page) => analyzeCompetitorPage(page, result.competitors.entity));
   const categories = new Map(result.readiness.categories.map((item) => [item.id, item]));
 
   const gaps = result.gaps.map((gap) => {
@@ -166,8 +170,8 @@ export function applyCompetitorAnalysis(result: AnalysisResult, pages: CrawlPage
       ...result.competitors,
       status: competitors.length ? "available" : "not-found",
       note: competitors.length
-        ? "Selected from Dutch public search results using the inferred service, geography and target customer. Only one commercial page per domain was checked."
-        : "No sufficiently relevant public-search competitor page could be checked.",
+        ? `Resolved ${result.competitors.entity.companyName} as ${result.competitors.entity.industry}, then selected matching Dutch public-search businesses with the same market profile. Only one commercial page per domain was checked.`
+        : `No public-search business sufficiently matched the resolved ${result.competitors.entity.industry} profile.`,
       competitors,
     },
   };

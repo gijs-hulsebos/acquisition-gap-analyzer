@@ -1,4 +1,6 @@
 import type { CrawlPage } from "./types";
+import { buildCompetitorSearchQuery, competitorCandidateScore } from "./entity";
+import type { ResolvedCompanyEntity } from "./types";
 import { normalizeAndValidateUrl } from "./url";
 
 type FirecrawlDocument = {
@@ -45,6 +47,18 @@ type FirecrawlScrapeResponse = {
   error?: string;
 };
 
+type FirecrawlMapLink = {
+  url?: string;
+  title?: string;
+  description?: string;
+};
+
+type FirecrawlMapResponse = {
+  success?: boolean;
+  links?: FirecrawlMapLink[];
+  error?: string;
+};
+
 const FIRECRAWL_BASE_URL = "https://api.firecrawl.dev/v2";
 const POLL_INTERVAL_MS = 1100;
 const MAX_WAIT_MS = 32_000;
@@ -65,7 +79,7 @@ async function readError(response: Response) {
   }
 }
 
-export async function crawlWebsite(url: string, apiKey: string): Promise<CrawlPage[]> {
+async function crawlWebsiteFallback(url: string, apiKey: string): Promise<CrawlPage[]> {
   const startResponse = await fetch(`${FIRECRAWL_BASE_URL}/crawl`, {
     method: "POST",
     headers: headers(apiKey),
@@ -138,27 +152,10 @@ export async function crawlWebsite(url: string, apiKey: string): Promise<CrawlPa
   throw new Error("The crawl took too long. Try the website again in a moment.");
 }
 
-const EXCLUDED_COMPETITOR_HOSTS = /(^|\.)(facebook|instagram|linkedin|youtube|x|twitter|trustpilot|werkspot|telefoonboek|openingstijden|google)\./i;
-const NON_COMMERCIAL_RESULT = /\/(blog|nieuws|news|vacature|jobs?|privacy|voorwaarden|terms)(\/|$)/i;
+const EXCLUDED_COMPETITOR_HOSTS = /(^|\.)(facebook|instagram|linkedin|youtube|x|twitter|trustpilot|werkspot|telefoonboek|openingstijden|google|yelp|tripadvisor|pinterest|indeed|amazon|bol|marktplaats|kvk|allebedrijven|bedrijvenpagina)\./i;
+const NON_COMMERCIAL_RESULT = /\/(blog|nieuws|news|vacature|jobs?|privacy|voorwaarden|terms|reviews?|directory|gids|lijst|top-?10)(\/|$)/i;
 
-function relevanceTerms(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-zà-ÿ0-9\s-]/g, " ")
-    .split(/[\s-]+/)
-    .filter((term) => term.length >= 4)
-    .slice(0, 8);
-}
-
-function candidateScore(candidate: FirecrawlSearchResult, terms: string[]) {
-  if (!candidate.url) return -100;
-  const haystack = `${candidate.title || ""} ${candidate.description || ""} ${candidate.url}`.toLowerCase();
-  const termMatches = terms.filter((term) => haystack.includes(term)).length;
-  const path = new URL(candidate.url).pathname;
-  return termMatches * 3 + (path !== "/" ? 2 : 0) + (/\/(diensten?|services?|oplossingen?|offerte|aanbod)\//i.test(path) ? 4 : 0);
-}
-
-async function scrapeCommercialPage(url: string, apiKey: string): Promise<CrawlPage> {
+async function scrapePage(url: string, apiKey: string, timeout = 8_000): Promise<CrawlPage> {
   const response = await fetch(`${FIRECRAWL_BASE_URL}/scrape`, {
     method: "POST",
     headers: headers(apiKey),
@@ -168,9 +165,9 @@ async function scrapeCommercialPage(url: string, apiKey: string): Promise<CrawlP
       onlyMainContent: false,
       blockAds: true,
       removeBase64Images: true,
-      timeout: 8_000,
+      timeout,
     }),
-    signal: AbortSignal.timeout(9_000),
+    signal: AbortSignal.timeout(timeout + 1_000),
   });
 
   if (!response.ok) throw new Error(await readError(response));
@@ -190,21 +187,133 @@ async function scrapeCommercialPage(url: string, apiKey: string): Promise<CrawlP
   };
 }
 
+type RepresentativeKind = "homepage" | "category" | "product" | "service" | "cart" | "checkout" | "conversion" | "pricing" | "trust" | "other";
+
+const STATIC_ASSET = /\.(?:jpg|jpeg|png|gif|webp|svg|pdf|xml|json|css|js|zip)(?:$|\?)/i;
+
+function representativeKind(link: FirecrawlMapLink, baseUrl: string): RepresentativeKind {
+  const parsed = new URL(link.url || baseUrl, baseUrl);
+  const path = parsed.pathname.toLowerCase().replace(/\/$/, "") || "/";
+  const text = `${path} ${link.title || ""} ${link.description || ""}`.toLowerCase();
+  if (path === "/") return "homepage";
+  if (/\/(checkout|afrekenen|kassa|payment|betalen)(\/|$)/i.test(path)) return "checkout";
+  if (/\/(cart|basket|bag|winkelmand|mandje)(\/|$)/i.test(path)) return "cart";
+  if (/\/(contact|offerte|quote|booking|boeken|afspraak|demo|aanvraag|application|apply|signup|register|trial)(\/|$)/i.test(path)) return "conversion";
+  if (/\/(products?|product|p)\//i.test(path) || /\b(product detail|artikelnummer|in winkelmand|add to cart)\b/i.test(text)) return "product";
+  if (/\/(collections?|collecties?|categories?|categorie|catalogus|shop|winkel)\//i.test(path)) return "category";
+  if (/\/(diensten?|services?|oplossingen?|solutions?)\//i.test(path)) return "service";
+  if (/\/(pricing|prijzen|tarieven|abonnementen)(\/|$)/i.test(path)) return "pricing";
+  if (/\/(delivery|shipping|bezorg|retour|returns?|garantie|guarantee|faq|veelgestelde-vragen|keurmerken?)(\/|$)/i.test(path)) return "trust";
+  return "other";
+}
+
+function representativeScore(link: FirecrawlMapLink, kind: RepresentativeKind) {
+  const path = new URL(link.url!).pathname;
+  const depth = path.split("/").filter(Boolean).length;
+  const titleBonus = link.title ? 2 : 0;
+  const kindBonus: Record<RepresentativeKind, number> = {
+    homepage: 100,
+    checkout: 95,
+    cart: 90,
+    conversion: 85,
+    product: 75,
+    category: 70,
+    service: 70,
+    pricing: 65,
+    trust: 55,
+    other: 0,
+  };
+  return kindBonus[kind] + titleBonus - depth;
+}
+
+/** Selects page types needed for a representative conversion path, not a catalogue sample. */
+export function selectRepresentativeUrls(baseUrl: string, links: FirecrawlMapLink[], limit = 8) {
+  const base = new URL(baseUrl);
+  const canonicalHome = `${base.origin}/`;
+  const normalized = new Map<string, FirecrawlMapLink>();
+  normalized.set(canonicalHome, { url: canonicalHome, title: "Homepage" });
+
+  for (const link of links) {
+    if (!link.url || STATIC_ASSET.test(link.url)) continue;
+    try {
+      const parsed = new URL(link.url, baseUrl);
+      if (parsed.origin !== base.origin) continue;
+      parsed.hash = "";
+      parsed.search = "";
+      parsed.pathname = parsed.pathname.replace(/\/$/, "") || "/";
+      normalized.set(parsed.toString(), { ...link, url: parsed.toString() });
+    } catch {
+      continue;
+    }
+  }
+
+  const buckets = new Map<RepresentativeKind, Array<FirecrawlMapLink & { url: string }>>();
+  for (const link of normalized.values()) {
+    if (!link.url) continue;
+    const kind = representativeKind(link, baseUrl);
+    const bucket = buckets.get(kind) || [];
+    bucket.push(link as FirecrawlMapLink & { url: string });
+    buckets.set(kind, bucket);
+  }
+  for (const [kind, bucket] of buckets) bucket.sort((a, b) => representativeScore(b, kind) - representativeScore(a, kind));
+
+  const order: RepresentativeKind[] = ["homepage", "category", "service", "product", "cart", "checkout", "conversion", "pricing", "trust"];
+  const selected: string[] = [];
+  for (const kind of order) {
+    const candidate = buckets.get(kind)?.[0];
+    if (candidate && !selected.includes(candidate.url)) selected.push(candidate.url);
+    if (selected.length >= limit) break;
+  }
+  return selected.slice(0, limit);
+}
+
+export async function crawlWebsite(url: string, apiKey: string): Promise<CrawlPage[]> {
+  try {
+    const mapResponse = await fetch(`${FIRECRAWL_BASE_URL}/map`, {
+      method: "POST",
+      headers: headers(apiKey),
+      body: JSON.stringify({
+        url,
+        sitemap: "include",
+        includeSubdomains: false,
+        ignoreQueryParameters: true,
+        limit: 200,
+        location: { country: "NL", languages: ["nl-NL", "en-US"] },
+        timeout: 8_000,
+      }),
+      signal: AbortSignal.timeout(9_000),
+    });
+    if (!mapResponse.ok) throw new Error(await readError(mapResponse));
+    const mapped = (await mapResponse.json()) as FirecrawlMapResponse;
+    if (!mapped.success) throw new Error(mapped.error || "The website map was unavailable.");
+    const selectedUrls = selectRepresentativeUrls(url, mapped.links || [], 8);
+    const settled = await Promise.allSettled(selectedUrls.map((selectedUrl) => scrapePage(selectedUrl, apiKey, 12_000)));
+    const pages = settled
+      .filter((item): item is PromiseFulfilledResult<CrawlPage> => item.status === "fulfilled")
+      .map((item) => item.value);
+    if (!pages.length) throw new Error("No representative journey pages could be read.");
+    return pages;
+  } catch {
+    return crawlWebsiteFallback(url, apiKey);
+  }
+}
+
 /**
  * Uses a Dutch public web search to select at most one commercial page from at
  * most two distinct competitor domains, then scrapes only those selected pages.
  */
 export async function discoverCompetitorPages(
-  query: string,
+  entity: ResolvedCompanyEntity,
   ownUrl: string,
   apiKey: string,
 ): Promise<CrawlPage[]> {
+  const query = buildCompetitorSearchQuery(entity);
   const response = await fetch(`${FIRECRAWL_BASE_URL}/search`, {
     method: "POST",
     headers: headers(apiKey),
     body: JSON.stringify({
       query,
-      limit: 8,
+      limit: 12,
       sources: ["web"],
       country: "NL",
       location: "Netherlands",
@@ -220,7 +329,6 @@ export async function discoverCompetitorPages(
   if (!result.success) throw new Error(result.error || "Competitor search was unavailable.");
 
   const ownOrigin = new URL(ownUrl).origin;
-  const terms = relevanceTerms(query);
   const seenOrigins = new Set<string>();
   const candidates = (result.data?.web || [])
     .filter((candidate): candidate is FirecrawlSearchResult & { url: string } => Boolean(candidate.url))
@@ -233,7 +341,10 @@ export async function discoverCompetitorPages(
         return false;
       }
     })
-    .sort((a, b) => candidateScore(b, terms) - candidateScore(a, terms))
+    .map((candidate) => ({ candidate, score: competitorCandidateScore(entity, candidate) }))
+    .filter((item) => item.score >= 5)
+    .sort((a, b) => b.score - a.score)
+    .map((item) => item.candidate)
     .filter((candidate) => {
       const origin = new URL(candidate.url).origin;
       if (seenOrigins.has(origin)) return false;
@@ -242,8 +353,13 @@ export async function discoverCompetitorPages(
     })
     .slice(0, 2);
 
-  const settled = await Promise.allSettled(candidates.map((candidate) => scrapeCommercialPage(candidate.url, apiKey)));
+  const settled = await Promise.allSettled(candidates.map((candidate) => scrapePage(candidate.url, apiKey)));
   return settled
     .filter((item): item is PromiseFulfilledResult<CrawlPage> => item.status === "fulfilled")
-    .map((item) => item.value);
+    .map((item) => item.value)
+    .filter((page) => competitorCandidateScore(entity, {
+      title: page.title,
+      description: `${page.description} ${page.markdown.slice(0, 1200)}`,
+      url: page.url,
+    }) >= 5);
 }

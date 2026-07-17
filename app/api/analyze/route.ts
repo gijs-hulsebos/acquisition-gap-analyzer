@@ -3,6 +3,7 @@ import { analyzeCrawl } from "@/lib/analyzer";
 import { applyCompetitorAnalysis } from "@/lib/competitors";
 import { DEMO_RESULT } from "@/lib/fixture";
 import { crawlWebsite, discoverCompetitorPages } from "@/lib/firecrawl";
+import { buildCompetitorSearchQuery, resolveCompanyEntity } from "@/lib/entity";
 import { enhanceFindings } from "@/lib/llm";
 import { normalizeAndValidateUrl } from "@/lib/url";
 
@@ -48,21 +49,33 @@ export async function POST(request: Request) {
   try {
     const pages = await crawlWebsite(url, firecrawlKey);
     const deterministic = analyzeCrawl(pages, url, Date.now() - startedAt);
-    let compared = deterministic;
+    const entity = await resolveCompanyEntity(deterministic, pages, process.env.OPENROUTER_API_KEY);
+    const entityResolved = {
+      ...deterministic,
+      competitors: {
+        ...deterministic.competitors,
+        query: buildCompetitorSearchQuery(entity),
+        geography: entity.geography,
+        targetCustomer: entity.targetCustomer,
+        entity,
+        note: `Resolved ${entity.companyName} as ${entity.industry} before competitor discovery.`,
+      },
+    };
+    let compared = entityResolved;
     try {
       const competitorPages = await discoverCompetitorPages(
-        deterministic.competitors.query,
+        entity,
         url,
         firecrawlKey,
       );
-      compared = applyCompetitorAnalysis(deterministic, competitorPages);
+      compared = applyCompetitorAnalysis(entityResolved, competitorPages);
     } catch {
       compared = {
-        ...deterministic,
+        ...entityResolved,
         competitors: {
-          ...deterministic.competitors,
+          ...entityResolved.competitors,
           status: "not-found",
-          note: "Public competitor search was unavailable, so no comparison evidence was added.",
+          note: `The entity was resolved as ${entity.industry}, but no sufficiently matching public-search competitor could be verified.`,
         },
       };
     }

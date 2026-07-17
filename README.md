@@ -9,12 +9,13 @@ The result is an MVP heuristic based on public website evidence. It is not conve
 - Landing page with URL entry and saved demo mode
 - Four-step loading experience
 - `POST /api/analyze` endpoint with URL validation and local/private-address blocking
-- Firecrawl v2 integration capped at eight pages and two discovery levels
+- Firecrawl v2 domain mapping followed by targeted scraping of up to eight representative journey pages
 - Extraction of homepage, service/contact pages, CTAs, forms and internal links
 - Six-category weighted conversion-readiness score
+- Structured primary customer journey with required clicks, additional observable actions and ordered stages
 - Three ranked, evidence-backed priority findings
 - Visible trust-signal analysis on important commercial pages
-- Lightweight comparison with up to two likely Dutch public-search competitors
+- Entity-first comparison with up to two likely Dutch public-search competitors
 - Optional OpenRouter rewrite of deterministic finding copy
 - Responsive dark dashboard with expandable evidence and crawl details
 
@@ -42,13 +43,16 @@ Every scored category becomes a potential finding with impact `100 - category sc
 ## Live-analysis flow
 
 1. The server validates and normalizes the submitted URL.
-2. Firecrawl crawls at most eight same-domain pages, up to two discovery levels.
-3. The analyzer extracts links, HTML buttons/anchors, forms, headings and visible text.
-4. Six deterministic categories are scored.
-5. The weighted readiness score and three priority findings are created.
-6. Firecrawl Search selects up to two likely Dutch public-search competitors and scrapes one commercial page per domain.
-7. Relevant competitor evidence is appended only to findings that already exist.
-8. If OpenRouter is configured, it may rewrite the title, summary and action of those findings. Evidence, scores, severity and ranking remain unchanged.
+2. Firecrawl Map discovers the submitted domain structure without scraping the catalogue.
+3. The selector chooses at most one representative homepage, category, product, service, cart, checkout/form, pricing and trust page.
+4. Firecrawl scrapes only those selected same-domain pages; the former bounded crawl is used only as a fallback if mapping fails.
+5. The analyzer infers one or more business models and selects the most important visible commercial conversion.
+6. A graph of selected internal pages, links and observable cart/checkout actions is used to find the shortest realistic route from homepage to conversion interface.
+7. Six deterministic categories are scored and the three highest-impact evidence-backed gaps are ranked.
+8. The company entity is resolved from first-party evidence before the separate competitor phase.
+9. Firecrawl Search uses that resolved market profile instead of a raw page keyword, and rejects candidates without sufficient industry and offering overlap.
+10. Up to two matching domains are selected and one commercial page per domain is scraped and validated again.
+11. If OpenRouter is configured, it may rewrite finding copy. Evidence, scores, severity and ranking remain unchanged.
 
 If competitor discovery or OpenRouter fails, the deterministic website report is still returned.
 
@@ -59,10 +63,12 @@ The current MVP:
 - Detects HTML forms but does not submit them.
 - Detects CTA text in HTML but does not prove that a CTA is visually prominent.
 - Detects trust signals on the same important page but does not prove they are positioned beside the CTA or form.
-- Analyzes at most eight pages.
-- Cannot discover a conversion route that passes through pages outside the bounded crawl.
+- Analyzes at most eight representative journey pages after mapping the domain.
+- Cannot confirm a conversion route that passes through pages outside the selected page set.
+- Never places an order, creates an account, books an appointment or submits a form.
+- May not observe personalized, logged-in, payment or JavaScript-only steps.
 - Uses HTML/text heuristics rather than real visitor behaviour or conversion analytics.
-- Labels competitors as `Likely public search competitors`; it does not confirm that they are direct commercial competitors.
+- Resolves and filters competitor candidates more strictly, but still labels them `Likely public search competitors`; public evidence cannot confirm that they are direct commercial competitors.
 
 It does not include a database, authentication, report history, email delivery, PDF export, analytics integration or scheduled monitoring.
 

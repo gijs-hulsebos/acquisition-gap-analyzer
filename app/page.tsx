@@ -445,81 +445,44 @@ function ConversionReadiness({ result }: { result: AnalysisResult }) {
 }
 
 function AcquisitionJourney({ result }: { result: AnalysisResult }) {
-  const categories = new Map(result.readiness.categories.map((category) => [category.id, category]));
-  const average = (ids: Array<AnalysisResult["readiness"]["categories"][number]["id"]>) => {
-    const scores = ids.map((id) => categories.get(id)?.score).filter((score): score is number => score !== null && score !== undefined);
-    return scores.length ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length) : null;
-  };
-  const stages = [
-    {
-      id: "understand",
-      number: "01",
-      label: "Understand the offer",
-      signalLabel: "Offer",
-      score: average(["service-page-coverage", "message-consistency"]),
-      categoryIds: ["service-page-coverage", "message-consistency"] as const,
-      explanation: "Is the offer immediately clear?",
-    },
-    {
-      id: "confidence",
-      number: "02",
-      label: "Build confidence",
-      signalLabel: "CTA",
-      score: average(["cta-clarity", "trust-signals"]),
-      categoryIds: ["cta-clarity", "trust-signals"] as const,
-      explanation: "Is the next step clear and credible?",
-    },
-    {
-      id: "enquiry",
-      number: "03",
-      label: "Complete the enquiry",
-      signalLabel: "Path",
-      score: average(["conversion-path-quality", "form-friction"]),
-      categoryIds: ["conversion-path-quality", "form-friction"] as const,
-      explanation: "Can visitors enquire without friction?",
-    },
-  ];
+  const journey = result.journey.primary;
+  const stages = journey.stages.slice(0, 5);
   const [activeStageId, setActiveStageId] = useState(() => {
-    const scored = stages.filter((stage) => stage.score !== null);
-    return [...scored].sort((a, b) => (a.score || 0) - (b.score || 0))[0]?.id || stages[0].id;
+    return stages.find((stage) => stage.friction)?.order || stages[0]?.order || 1;
   });
-  const activeStage = stages.find((stage) => stage.id === activeStageId) || stages[0];
-  const stageStatus = (score: number | null) => score === null ? "No data" : score >= 75 ? "Strong" : score >= 50 ? "Watch" : "Friction";
+  const activeStage = stages.find((stage) => stage.order === activeStageId) || stages[0];
+  const clickLabel = journey.clicksToInterface === null ? "Path unconfirmed" : `${journey.clicksToInterface} required click${journey.clicksToInterface === 1 ? "" : "s"}`;
+  const journeySummary = journey.additionalObservableActions === null ? clickLabel : `${clickLabel} · ${journey.additionalObservableActions} additional action${journey.additionalObservableActions === 1 ? "" : "s"}`;
 
   return (
     <section className="journey-panel" aria-labelledby="journey-heading">
       <header className="journey-heading">
-        <div><span>Journey</span><h2 id="journey-heading">Visit → enquiry</h2></div>
+        <div><span>Customer journey</span><h2 id="journey-heading">Visitor → {result.journey.primaryConversionType.toLowerCase()}</h2></div>
+        <small>{journeySummary}</small>
       </header>
-      <div className="journey-flow" role="group" aria-label="Acquisition journey stages">
+      <div className="journey-flow" role="group" aria-label="Representative customer journey" style={{ "--journey-columns": Math.max(stages.length, 1) } as CSSProperties}>
         {stages.map((stage) => (
           <button
-            className={stage.id === activeStage.id ? "active" : ""}
+            className={stage.order === activeStage?.order ? "active" : ""}
             type="button"
-            aria-pressed={stage.id === activeStage.id}
-            aria-label={`${stage.label}: ${stageStatus(stage.score)}${stage.score === null ? "" : `, ${stage.score}`}`}
-            onClick={() => setActiveStageId(stage.id)}
-            key={stage.id}
+            aria-pressed={stage.order === activeStage?.order}
+            aria-label={`Step ${stage.order}: ${stage.pageType}. ${stage.action}`}
+            onClick={() => setActiveStageId(stage.order)}
+            key={`${stage.order}-${stage.url}`}
           >
-            <span className="journey-node">{stage.number}</span>
-            <span className="journey-stage-copy"><strong>{stage.signalLabel}</strong></span>
-            <span className="journey-value">{stage.score ?? "—"}</span>
-            <span className="journey-meter"><i style={{ width: `${stage.score ?? 0}%` }} /></span>
+            <span className="journey-node">{String(stage.order).padStart(2, "0")}</span>
+            <span className="journey-stage-copy"><strong>{stage.pageType}</strong></span>
+            <span className="journey-meter"><i style={{ width: `${(stage.order / Math.max(stages.length, 1)) * 100}%` }} /></span>
             <span className="journey-hover-card" role="tooltip">
-              <strong>{stage.label}</strong>
-              <span>{stage.explanation}</span>
-              <small>
-                {stage.categoryIds.map((id) => {
-                  const signal = categories.get(id);
-                  return `${signal?.label}: ${signal?.score ?? "not scored"}`;
-                }).join(" · ")}
-              </small>
+              <strong>{stage.title}</strong>
+              <span>{stage.action}</span>
+              <small>{stage.ctaText ? `CTA: ${stage.ctaText}` : stage.friction || "Conversion interface reached"}</small>
             </span>
           </button>
         ))}
       </div>
       <div className="journey-detail" aria-live="polite">
-        <strong>{activeStage.label}</strong>
+        <strong>{activeStage?.action || "No complete conversion route was confirmed"}</strong>
       </div>
     </section>
   );
@@ -598,6 +561,16 @@ function TechnicalDetails({ result }: { result: AnalysisResult }) {
         <ChevronRight size={16} />
       </summary>
       <div className="technical-content">
+        <section className="score-method journey-method" aria-labelledby="journey-method-heading">
+          <div className="technical-subheading"><div><span>CUSTOMER JOURNEY</span><h3 id="journey-method-heading">Representative conversion route</h3></div><small>{result.journey.primary.confidence} confidence</small></div>
+          <div className="score-method-rows">
+            <div><span>Business model</span><small>First-party evidence</small><strong>{result.journey.businessModels[0]}</strong></div>
+            <div><span>Primary conversion</span><small>Commercial destination</small><strong>{result.journey.primaryConversionType}</strong></div>
+            <div><span>Required actions</span><small>Before the interface</small><strong>{result.journey.primary.clicksToInterface ?? "Unconfirmed"}</strong></div>
+          </div>
+          <p>{result.journey.primary.stages.map((stage) => stage.pageType).join(" → ") || "No complete public route was detected."}</p>
+        </section>
+
         <section className="score-method" aria-labelledby="score-method-heading">
           <div className="technical-subheading"><div><span>SCORING METHOD</span><h3 id="score-method-heading">Weighted category breakdown</h3></div><small>{result.readiness.assessedWeight}% assessed</small></div>
           <div className="score-method-rows">
@@ -626,7 +599,8 @@ function TechnicalDetails({ result }: { result: AnalysisResult }) {
             <li>Forms are detected, not submitted.</li>
             <li>CTA text is read from HTML; visual prominence is not measured.</li>
             <li>Trust signals may be on the same page without being beside the CTA.</li>
-            <li>Only eight pages are analyzed, so routes through uncrawled pages are not visible.</li>
+            <li>Up to eight representative pages are analyzed, so routes through unselected pages may not be visible.</li>
+            <li>Purchases, account creation, bookings and forms are never completed.</li>
           </ul>
         </section>
 
@@ -687,7 +661,7 @@ function ResultsView({ result, onReset }: { result: AnalysisResult; onReset: () 
 
           <aside className="report-disclaimer" aria-label="Report scope disclaimer">
             <CircleAlert size={15} />
-            <p><strong>Report scope.</strong> This heuristic uses public HTML evidence from up to eight crawled pages. It does not submit forms, measure CTA prominence, confirm trust-signal proximity or detect routes through pages outside the crawl.</p>
+            <p><strong>Report scope.</strong> This heuristic maps the domain and inspects up to eight representative journey pages. It never purchases, creates accounts or submits forms, and cannot confirm visual prominence, personalization, logged-in steps or routes outside the selected pages.</p>
           </aside>
 
           <footer className="dashboard-footer">

@@ -1,10 +1,15 @@
 import type {
   AnalysisResult,
+  BusinessModel,
   Confidence,
+  ConversionType,
   CrawlPage,
   Evidence,
   Gap,
   GapId,
+  JourneyAnalysis,
+  JourneyPageType,
+  JourneyStage,
   ReadinessCategory,
   Severity,
   TrustSignalType,
@@ -29,6 +34,13 @@ const CONTACT_PATH = /\/(contact|afspraak|offerte|boeken|book|booking|quote|aanv
 const GENERIC_SERVICE_PATH = /^\/(diensten?|services?|oplossingen?|solutions?|aanbod)\/?$/i;
 const SERVICE_PARENT_PATH = /\/(diensten?|services?|oplossingen?|solutions?|aanbod)\//i;
 const NON_SERVICE_PATH = /\/(contact|over-ons|about|team|blog|nieuws|news|cases?|projecten?|privacy|voorwaarden|terms|vacatures?|jobs?)(\/|$)/i;
+const ADD_TO_CART = /\b(add to (cart|bag|basket)|in winkelmand|toevoegen aan (winkelmand|mandje)|bestel nu|buy now)\b/i;
+const CHECKOUT_ACTION = /\b(checkout|afrekenen|naar de kassa|doorgaan met bestellen|secure checkout)\b/i;
+const QUOTE_ACTION = /\b(offerte|prijsopgave|quote|estimate)\b/i;
+const BOOKING_ACTION = /\b(boek|booking|afspraak|schedule|reserveer|reservation)\b/i;
+const DEMO_ACTION = /\b(demo|demonstratie|rondleiding)\b/i;
+const APPLICATION_ACTION = /\b(aanvraag|application|apply|solliciteer)\b/i;
+const SIGNUP_ACTION = /\b(sign up|signup|registreer|account aanmaken|start trial|proefperiode|abonneer)\b/i;
 
 const CATEGORY_WEIGHTS = {
   "cta-clarity": 20,
@@ -264,6 +276,168 @@ function inferMarket(pages: PageFacts[]) {
   return { geography, targetCustomer };
 }
 
+function journeyPageType(page: PageFacts, homepage: PageFacts): JourneyPageType {
+  if (page.normalizedUrl === homepage.normalizedUrl) return "Homepage";
+  const path = new URL(page.normalizedUrl).pathname.toLowerCase();
+  const text = `${path} ${page.title} ${page.h1}`;
+  if (/\/(checkout|afrekenen|kassa|payment|betalen)(\/|$)/i.test(path)) return "Checkout";
+  if (/\/(cart|basket|bag|winkelmand|mandje)(\/|$)/i.test(path)) return "Cart";
+  if (/\/(booking|boeken|afspraak|reserveer)(\/|$)/i.test(path)) return "Booking";
+  if (/\/(offerte|quote|prijsopgave|aanvraag)(\/|$)/i.test(path)) return "Quote";
+  if (/\/(application|apply|inschrijven)(\/|$)/i.test(path)) return "Application";
+  if (/\/(contact)(\/|$)/i.test(path)) return "Contact";
+  if (/\/(pricing|prijzen|tarieven|abonnementen)(\/|$)/i.test(path)) return "Pricing";
+  if (/\/(products?|product|p)\//i.test(path) || ADD_TO_CART.test(page.bodyText)) return "Product";
+  if (/\/(collections?|collecties?|categories?|categorie|catalogus|shop|winkel)\//i.test(path)) return "Category";
+  if (/\/(diensten?|services?|oplossingen?|solutions?)\//i.test(path) || /\b(service|dienst|oplossing)\b/i.test(text)) return "Service";
+  if (/\/(delivery|shipping|bezorg|retour|returns?|garantie|guarantee|faq|veelgestelde-vragen)(\/|$)/i.test(path)) return "Trust";
+  return "Other";
+}
+
+function inferBusinessModels(pages: PageFacts[], homepage: PageFacts): BusinessModel[] {
+  const text = pages.map((page) => `${page.normalizedUrl} ${page.title} ${page.bodyText.slice(0, 1800)}`).join(" ");
+  const clickText = pages.flatMap((page) => page.clickables.map((item) => item.text)).join(" ");
+  const models: BusinessModel[] = [];
+  if (ADD_TO_CART.test(clickText) || /\/(cart|checkout|winkelmand|afrekenen|products?|collectie)\b/i.test(text)) models.push("Ecommerce");
+  if (BOOKING_ACTION.test(clickText) || /\/(booking|boeken|afspraak|reserveer)\b/i.test(text)) models.push("Appointment or booking");
+  if (/\b(saas|software|platform|cloud|abonnement|subscription)\b/i.test(text) && (SIGNUP_ACTION.test(clickText) || DEMO_ACTION.test(clickText))) models.push("Software or subscription");
+  if (/\b(marktplaats|marketplace|aanbieders|verkopers|providers|boek een professional)\b/i.test(text)) models.push("Marketplace");
+  if (pages.some((page) => page.forms.length > 0) || QUOTE_ACTION.test(clickText) || CONTACT_PATH.test(text)) models.push("Lead generation");
+  if (/\b(advocaat|accountant|consultancy|adviesbureau|makelaar|architect|agency|bureau)\b/i.test(text)) models.push("Professional services");
+  if (/\b(werkgebied|installatie|onderhoud|reparatie|service aan huis|lokale specialist)\b/i.test(text)) models.push("Local service business");
+  if (!models.length) models.push("Informational or non-commercial");
+  return Array.from(new Set(models));
+}
+
+function conversionTypeFor(page: PageFacts, type: JourneyPageType): ConversionType {
+  const clickText = page.clickables.map((item) => item.text).join(" ");
+  if (type === "Checkout") return "Checkout";
+  if (type === "Cart") return CHECKOUT_ACTION.test(clickText) ? "Checkout" : "Add to cart";
+  if (type === "Product" && ADD_TO_CART.test(clickText)) return "Add to cart";
+  if (type === "Booking" || BOOKING_ACTION.test(`${page.title} ${page.h1}`)) return "Appointment booking";
+  if (DEMO_ACTION.test(`${page.title} ${page.h1} ${clickText}`)) return "Demo request";
+  if (type === "Application" || APPLICATION_ACTION.test(`${page.title} ${page.h1}`)) return "Application";
+  if (type === "Quote" || QUOTE_ACTION.test(`${page.title} ${page.h1}`)) return "Quote request";
+  if (SIGNUP_ACTION.test(`${page.title} ${page.h1} ${clickText}`)) return "Signup or subscription";
+  if (page.forms.length) return type === "Contact" ? "Lead form" : "Lead form";
+  if (type === "Contact") return "Contact";
+  return "No clear conversion";
+}
+
+type JourneyEdge = { from: string; to: string; action: string; ctaText: string | null; visible: boolean };
+
+function journeyEdges(pages: PageFacts[], homepage: PageFacts) {
+  const pageMap = new Map(pages.map((page) => [page.normalizedUrl, page]));
+  const edges: JourneyEdge[] = [];
+  for (const page of pages) {
+    for (const link of page.normalizedLinks) {
+      if (!pageMap.has(link)) continue;
+      const clickable = page.clickables.find((item) => item.href && normalizePageUrl(item.href, page.url) === link);
+      edges.push({ from: page.normalizedUrl, to: link, action: clickable?.text ? `Click “${clickable.text}”` : "Open the next page", ctaText: clickable?.text || null, visible: Boolean(clickable?.text) });
+    }
+  }
+  const cart = pages.find((page) => journeyPageType(page, homepage) === "Cart");
+  const checkout = pages.find((page) => journeyPageType(page, homepage) === "Checkout");
+  if (cart) {
+    for (const page of pages.filter((candidate) => candidate.clickables.some((item) => ADD_TO_CART.test(item.text)))) {
+      if (!edges.some((edge) => edge.from === page.normalizedUrl && edge.to === cart.normalizedUrl)) {
+        const cta = page.clickables.find((item) => ADD_TO_CART.test(item.text));
+        edges.push({ from: page.normalizedUrl, to: cart.normalizedUrl, action: `Click “${cta?.text || "Add to cart"}”`, ctaText: cta?.text || "Add to cart", visible: true });
+      }
+    }
+  }
+  if (cart && checkout && !edges.some((edge) => edge.from === cart.normalizedUrl && edge.to === checkout.normalizedUrl)) {
+    const cta = cart.clickables.find((item) => CHECKOUT_ACTION.test(item.text));
+    if (cta) edges.push({ from: cart.normalizedUrl, to: checkout.normalizedUrl, action: `Click “${cta.text}”`, ctaText: cta.text, visible: true });
+  }
+  return edges;
+}
+
+function shortestJourneyRoute(homepage: PageFacts, targets: Set<string>, edges: JourneyEdge[]) {
+  const queue: string[][] = [[homepage.normalizedUrl]];
+  const visited = new Set([homepage.normalizedUrl]);
+  while (queue.length) {
+    const route = queue.shift()!;
+    const current = route[route.length - 1];
+    if (targets.has(current)) return route;
+    for (const edge of edges.filter((item) => item.from === current)) {
+      if (visited.has(edge.to)) continue;
+      visited.add(edge.to);
+      queue.push([...route, edge.to]);
+    }
+  }
+  return null;
+}
+
+function buildJourneyAnalysis(pages: PageFacts[], homepage: PageFacts, primaryService: string): JourneyAnalysis {
+  const businessModels = inferBusinessModels(pages, homepage);
+  const typedPages = pages.map((page) => ({ page, type: journeyPageType(page, homepage), conversion: conversionTypeFor(page, journeyPageType(page, homepage)) }));
+  const priority: ConversionType[] = businessModels.includes("Ecommerce")
+    ? ["Checkout", "Add to cart", "Quote request", "Lead form", "Contact"]
+    : businessModels.includes("Appointment or booking")
+      ? ["Appointment booking", "Quote request", "Lead form", "Contact"]
+      : businessModels.includes("Software or subscription")
+        ? ["Signup or subscription", "Demo request", "Lead form", "Contact"]
+        : ["Quote request", "Appointment booking", "Demo request", "Application", "Lead form", "Contact"];
+  const primaryConversionType = priority.find((type) => typedPages.some((item) => item.conversion === type)) || "No clear conversion";
+  let targetPages = typedPages.filter((item) => item.conversion === primaryConversionType);
+  if (primaryConversionType === "Checkout" && targetPages.some((item) => item.type === "Checkout")) {
+    targetPages = targetPages.filter((item) => item.type === "Checkout");
+  }
+  const targets = new Set(targetPages.map((item) => item.page.normalizedUrl));
+  const edges = journeyEdges(pages, homepage);
+  const route = targets.size ? shortestJourneyRoute(homepage, targets, edges) : null;
+  const pageMap = new Map(pages.map((page) => [page.normalizedUrl, page]));
+  const destination = route ? pageMap.get(route[route.length - 1]) || null : null;
+  const stages: JourneyStage[] = (route || [homepage.normalizedUrl]).map((url, index, all) => {
+    const page = pageMap.get(url) || homepage;
+    const next = all[index + 1];
+    const edge = next ? edges.find((item) => item.from === url && item.to === next) : null;
+    const type = journeyPageType(page, homepage);
+    const generic = edge?.ctaText ? GENERIC_CTA.test(edge.ctaText) : false;
+    return {
+      order: index + 1,
+      pageType: type,
+      title: page.title,
+      url: page.url,
+      action: edge?.action || `Reach the ${primaryConversionType.toLowerCase()} interface`,
+      ctaText: edge?.ctaText || null,
+      nextStepVisible: edge ? edge.visible : true,
+      necessary: true,
+      friction: page.statusCode >= 400 ? `Page returned HTTP ${page.statusCode}.` : generic ? `The route uses the generic CTA “${edge?.ctaText}”.` : null,
+    };
+  });
+  const destinationForm = destination?.forms[0];
+  const additionalObservableActions = destinationForm
+    ? destinationForm.requiredCount + 1
+    : primaryConversionType === "Add to cart" ? 1 : null;
+  const confidence = route && pages.length >= 4 ? "High" : route ? "Medium" : "Low";
+  const limitations = [
+    "No purchase, account creation or form submission was completed.",
+    "Dynamic, personalized, logged-in and payment steps may not be visible in public HTML.",
+    "The detected shortest path may differ from routes used by real visitors.",
+  ];
+  return {
+    businessModels,
+    primaryOffer: primaryService,
+    primaryConversionType,
+    primary: {
+      name: primaryConversionType === "No clear conversion" ? "Primary commercial journey not confirmed" : `${primaryConversionType} journey`,
+      conversionType: primaryConversionType,
+      startUrl: homepage.url,
+      destinationUrl: destination?.url || null,
+      clicksToInterface: route ? Math.max(0, route.length - 1) : null,
+      additionalObservableActions,
+      stages,
+      shortestRoute: route || [],
+      alternativeRoute: null,
+      confidence,
+      limitations,
+    },
+    secondary: [],
+  };
+}
+
 function category(
   id: ReadinessCategory["id"],
   label: string,
@@ -491,10 +665,12 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
   );
   const servicePages = pages.filter((page) => isSpecificServicePage(page, overviewLinks));
   const internalLinks = new Set(pages.flatMap((page) => page.normalizedLinks));
-  const path = shortestConversionPath(pages, homepage);
-  const destination = path ? pages.find((page) => page.normalizedUrl === path[path.length - 1]) || null : null;
   const primaryService = inferPrimaryService(homepage, servicePages);
   const market = inferMarket(pages);
+  const journey = buildJourneyAnalysis(pages, homepage, primaryService);
+  const fallbackPath = shortestConversionPath(pages, homepage);
+  const path = journey.primary.shortestRoute.length ? journey.primary.shortestRoute : fallbackPath;
+  const destination = path ? pages.find((page) => page.normalizedUrl === path[path.length - 1]) || null : null;
 
   const categories = [
     ctaCategory(homepage, pages),
@@ -561,9 +737,21 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
       query: searchQuery,
       geography: market.geography,
       targetCustomer: market.targetCustomer,
+      entity: {
+        companyName,
+        domain: new URL(analyzedUrl).hostname.replace(/^www\./, ""),
+        industry: primaryService,
+        businessModel: "other",
+        offerings: [primaryService],
+        geography: market.geography,
+        targetCustomer: market.targetCustomer,
+        confidence: reportConfidence,
+        method: "deterministic",
+      },
       note: "Competitor discovery was not run for this result.",
       competitors: [],
     },
+    journey,
     pages: pages.map((page) => ({ title: page.title, url: page.url, type: pageType(page, homepage, servicePages), statusCode: page.statusCode })),
     llmEnhanced: false,
   };

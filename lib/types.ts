@@ -1,6 +1,43 @@
 export type Confidence = "High" | "Medium" | "Low";
 export type Severity = "Critical" | "High" | "Medium" | "Low";
 export type AnalysisMode = "live" | "fixture";
+export type BusinessModel = "Ecommerce" | "Lead generation" | "Appointment or booking" | "Software or subscription" | "Professional services" | "Local service business" | "Marketplace" | "Informational or non-commercial";
+export type ConversionType = "Checkout" | "Add to cart" | "Quote request" | "Appointment booking" | "Demo request" | "Application" | "Lead form" | "Contact" | "Signup or subscription" | "No clear conversion";
+export type JourneyPageType = "Homepage" | "Category" | "Product" | "Service" | "Cart" | "Checkout" | "Booking" | "Quote" | "Application" | "Contact" | "Pricing" | "Trust" | "Other";
+
+export type JourneyStage = {
+  order: number;
+  pageType: JourneyPageType;
+  title: string;
+  url: string;
+  action: string;
+  ctaText: string | null;
+  nextStepVisible: boolean;
+  necessary: boolean;
+  friction: string | null;
+};
+
+export type CustomerJourney = {
+  name: string;
+  conversionType: ConversionType;
+  startUrl: string;
+  destinationUrl: string | null;
+  clicksToInterface: number | null;
+  additionalObservableActions: number | null;
+  stages: JourneyStage[];
+  shortestRoute: string[];
+  alternativeRoute: string[] | null;
+  confidence: Confidence;
+  limitations: string[];
+};
+
+export type JourneyAnalysis = {
+  businessModels: BusinessModel[];
+  primaryOffer: string;
+  primaryConversionType: ConversionType;
+  primary: CustomerJourney;
+  secondary: CustomerJourney[];
+};
 
 export type GapId =
   | "cta"
@@ -90,8 +127,21 @@ export type CompetitorAnalysis = {
   query: string;
   geography: string;
   targetCustomer: string;
+  entity: ResolvedCompanyEntity;
   note: string;
   competitors: PublicSearchCompetitor[];
+};
+
+export type ResolvedCompanyEntity = {
+  companyName: string;
+  domain: string;
+  industry: string;
+  businessModel: "local-service" | "professional-service" | "retail-ecommerce" | "software-technology" | "manufacturing-wholesale" | "hospitality" | "other";
+  offerings: string[];
+  geography: string;
+  targetCustomer: string;
+  confidence: Confidence;
+  method: "deterministic" | "openrouter";
 };
 
 export type CrawlStats = {
@@ -126,6 +176,7 @@ export type AnalysisResult = {
     targetCustomer: string;
   };
   competitors: CompetitorAnalysis;
+  journey: JourneyAnalysis;
   pages: Array<{
     title: string;
     url: string;
