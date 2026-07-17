@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { analyzeCrawl, detectTrustSignals } from "../lib/analyzer";
+import { readAnalysisResponse } from "../lib/api-response";
 import { analyzeCompetitorPage, analyzeCompetitorSite, applyCompetitorAnalysis } from "../lib/competitors";
 import { buildDeterministicEntityProfile, competitorCandidateScore } from "../lib/entity";
-import { selectRepresentativeResults } from "../lib/firecrawl";
+import { crawlWebsite, selectRepresentativeResults } from "../lib/firecrawl";
 import { classifyCommercialModel, journeyRolesForModel } from "../lib/journey-model";
 import type { CrawlPage } from "../lib/types";
 
@@ -44,6 +45,8 @@ function scoredSite(options: { trustOnContact?: boolean; longForm?: boolean } = 
     }),
   ];
 }
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("weighted readiness", () => {
   it("always returns the three required deterministic findings and overview", () => {
@@ -279,5 +282,44 @@ describe("representative customer journeys", () => {
     expect(entity.businessModel).toBe("retail-ecommerce");
     expect(entity.industry).toBe("Home and lifestyle retail");
     expect(entity.offerings).toContain("woonaccessoires");
+  });
+});
+
+describe("timeout resilience", () => {
+  it("returns the already-scraped homepage when mapping fails instead of starting a slow fallback crawl", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const requestUrl = String(input);
+      if (requestUrl.endsWith("/scrape")) {
+        return new Response(JSON.stringify({
+          success: true,
+          data: {
+            markdown: "Warmtepompinstallatie voor woningen in Utrecht.",
+            html: "<html><body><h1>Warmtepompinstallatie voor woningen</h1></body></html>",
+            links: [],
+            metadata: { sourceURL: "https://voorbeeld.nl/", title: "Voorbeeld", statusCode: 200 },
+          },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (requestUrl.endsWith("/map")) {
+        return new Response(JSON.stringify({ error: "Map unavailable" }), { status: 502, headers: { "Content-Type": "application/json" } });
+      }
+      throw new Error(`Unexpected request: ${requestUrl}`);
+    });
+
+    const pages = await crawlWebsite("https://voorbeeld.nl", "test-key", { homepageTimeout: 100, mapTimeout: 100 });
+    expect(pages).toHaveLength(1);
+    expect(pages[0].url).toBe("https://voorbeeld.nl/");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/crawl"))).toBe(false);
+  });
+
+  it("turns a non-JSON Vercel timeout response into a readable message", async () => {
+    const response = new Response("An error occurred with your deployment", { status: 504, headers: { "Content-Type": "text/plain" } });
+    await expect(readAnalysisResponse(response)).rejects.toThrow("The scan took too long");
+  });
+
+  it("preserves a structured API error message", async () => {
+    const response = new Response(JSON.stringify({ error: "Firecrawl is temporarily unavailable." }), { status: 502, headers: { "Content-Type": "application/json" } });
+    await expect(readAnalysisResponse(response)).rejects.toThrow("Firecrawl is temporarily unavailable.");
   });
 });

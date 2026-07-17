@@ -3,12 +3,22 @@ import { analyzeCrawl } from "@/lib/analyzer";
 import { applyCompetitorAnalysis } from "@/lib/competitors";
 import { DEMO_RESULT } from "@/lib/fixture";
 import { crawlWebsite, discoverCompetitorPages } from "@/lib/firecrawl";
-import { buildCompetitorSearchQuery, resolveCompanyEntity } from "@/lib/entity";
+import { buildCompetitorSearchQuery, buildDeterministicEntityProfile, resolveCompanyEntity } from "@/lib/entity";
 import { enhanceFindings } from "@/lib/llm";
 import { normalizeAndValidateUrl } from "@/lib/url";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
+function within<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
 
 export async function POST(request: Request) {
   let body: { url?: unknown; mode?: unknown };
@@ -47,9 +57,25 @@ export async function POST(request: Request) {
 
   const startedAt = Date.now();
   try {
-    const pages = await crawlWebsite(url, firecrawlKey);
+    const pages = await within(
+      crawlWebsite(url, firecrawlKey),
+      25_000,
+      "The first-party crawl took too long to return evidence. Please try again.",
+    );
     const deterministic = analyzeCrawl(pages, url, Date.now() - startedAt);
-    const entity = await resolveCompanyEntity(deterministic, pages, process.env.OPENROUTER_API_KEY);
+    const fallbackEntity = buildDeterministicEntityProfile(deterministic, pages);
+    let entity = fallbackEntity;
+    if (process.env.OPENROUTER_API_KEY && Date.now() - startedAt < 30_000) {
+      try {
+        entity = await within(
+          resolveCompanyEntity(deterministic, pages, process.env.OPENROUTER_API_KEY),
+          5_500,
+          "Company profile enrichment timed out.",
+        );
+      } catch {
+        entity = fallbackEntity;
+      }
+    }
     const entityResolved = {
       ...deterministic,
       competitors: {
@@ -62,26 +88,48 @@ export async function POST(request: Request) {
       },
     };
     let compared = entityResolved;
-    try {
-      const competitorSites = await discoverCompetitorPages(
-        entity,
-        url,
-        firecrawlKey,
-      );
-      compared = applyCompetitorAnalysis(entityResolved, competitorSites);
-    } catch {
+    const competitorBudget = Math.min(18_000, 49_000 - (Date.now() - startedAt));
+    if (competitorBudget >= 4_000) {
+      try {
+        const competitorSites = await within(
+          discoverCompetitorPages(entity, url, firecrawlKey),
+          competitorBudget,
+          "Competitor discovery timed out.",
+        );
+        compared = applyCompetitorAnalysis(entityResolved, competitorSites);
+      } catch {
+        compared = {
+          ...entityResolved,
+          competitors: {
+            ...entityResolved.competitors,
+            status: "not-found",
+            note: `The entity was resolved as ${entity.industry}, but competitor evidence was unavailable within this scan. The main company report is unaffected.`,
+          },
+        };
+      }
+    } else {
       compared = {
         ...entityResolved,
         competitors: {
           ...entityResolved.competitors,
-          status: "not-found",
-          note: `The entity was resolved as ${entity.industry}, but no sufficiently matching public-search competitor could be verified. The main company report is unaffected.`,
+          status: "skipped",
+          note: `The company report used the available scan time, so competitor discovery was skipped. The main company report is unaffected.`,
         },
       };
     }
-    const result = Date.now() - startedAt < 50_000
-      ? await enhanceFindings(compared, process.env.OPENROUTER_API_KEY)
-      : compared;
+    let result = compared;
+    if (process.env.OPENROUTER_API_KEY && Date.now() - startedAt < 44_000) {
+      try {
+        result = await within(
+          enhanceFindings(compared, process.env.OPENROUTER_API_KEY),
+          Math.min(7_000, 52_000 - (Date.now() - startedAt)),
+          "Report copy enhancement timed out.",
+        );
+      } catch {
+        result = compared;
+      }
+    }
+    result = { ...result, stats: { ...result.stats, processingMs: Date.now() - startedAt } };
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "The website could not be analyzed.";

@@ -68,7 +68,15 @@ export type CompetitorSiteCrawl = {
 
 const FIRECRAWL_BASE_URL = "https://api.firecrawl.dev/v2";
 const POLL_INTERVAL_MS = 1100;
-const MAX_WAIT_MS = 15_000;
+
+export type CrawlOptions = {
+  limit?: number;
+  allowFallback?: boolean;
+  homepageTimeout?: number;
+  mapTimeout?: number;
+  pageTimeout?: number;
+  fallbackWait?: number;
+};
 
 function headers(apiKey: string) {
   return {
@@ -86,13 +94,13 @@ async function readError(response: Response) {
   }
 }
 
-async function crawlWebsiteFallback(url: string, apiKey: string): Promise<CrawlPage[]> {
+async function crawlWebsiteFallback(url: string, apiKey: string, maxWaitMs = 9_000, limit = 8): Promise<CrawlPage[]> {
   const startResponse = await fetch(`${FIRECRAWL_BASE_URL}/crawl`, {
     method: "POST",
     headers: headers(apiKey),
     body: JSON.stringify({
       url,
-      limit: 8,
+      limit,
       maxDiscoveryDepth: 2,
       crawlEntireDomain: false,
       allowExternalLinks: false,
@@ -107,7 +115,7 @@ async function crawlWebsiteFallback(url: string, apiKey: string): Promise<CrawlP
         timeout: 20_000,
       },
     }),
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(7_000),
   });
 
   if (!startResponse.ok) throw new Error(await readError(startResponse));
@@ -117,13 +125,13 @@ async function crawlWebsiteFallback(url: string, apiKey: string): Promise<CrawlP
     throw new Error(started.error || "Firecrawl did not start the crawl.");
   }
 
-  const deadline = Date.now() + MAX_WAIT_MS;
+  const deadline = Date.now() + maxWaitMs;
   let latestPages: CrawlPage[] = [];
   while (Date.now() < deadline) {
     const statusResponse = await fetch(`${FIRECRAWL_BASE_URL}/crawl/${started.id}`, {
       headers: headers(apiKey),
       cache: "no-store",
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(5_000),
     });
 
     if (!statusResponse.ok) throw new Error(await readError(statusResponse));
@@ -358,6 +366,7 @@ async function crawlRepresentativePages(
   model: CommercialModel,
   apiKey: string,
   limit = 8,
+  pageTimeout = 5_500,
 ) {
   const pages = [homepage];
   const visited = new Set([normalizeAndValidateUrl(homepage.url)]);
@@ -373,16 +382,29 @@ async function crawlRepresentativePages(
     if (candidates.length >= limit - 1) break;
   }
 
-  const settled = await Promise.allSettled(candidates.map((candidate) => scrapePage(candidate.url, apiKey, 6_500)));
+  const settled = await Promise.allSettled(candidates.map((candidate) => scrapePage(candidate.url, apiKey, pageTimeout)));
   pages.push(...settled.filter((item): item is PromiseFulfilledResult<CrawlPage> => item.status === "fulfilled").map((item) => item.value));
   return selectRepresentativeResults(pages, homepage.url, limit);
 }
 
-export async function crawlWebsite(url: string, apiKey: string): Promise<CrawlPage[]> {
+export async function crawlWebsite(url: string, apiKey: string, options: CrawlOptions = {}): Promise<CrawlPage[]> {
   const rootUrl = new URL(normalizeAndValidateUrl(url)).origin;
+  const limit = Math.min(8, Math.max(1, options.limit ?? 8));
+  const allowFallback = options.allowFallback ?? true;
+  const homepageTimeout = options.homepageTimeout ?? 7_000;
+  const mapTimeout = options.mapTimeout ?? 7_000;
+  const pageTimeout = options.pageTimeout ?? 5_500;
+  let homepage: CrawlPage;
+
   try {
-    const homepage = await scrapePage(rootUrl, apiKey, 8_000);
-    const model = classifyCommercialModel([homepage]);
+    homepage = await scrapePage(rootUrl, apiKey, homepageTimeout);
+  } catch (homepageError) {
+    if (!allowFallback) throw homepageError;
+    const fallback = await crawlWebsiteFallback(rootUrl, apiKey, options.fallbackWait ?? 9_000, limit);
+    return selectRepresentativeResults(fallback, rootUrl, limit);
+  }
+
+  try {
     const mapResponse = await fetch(`${FIRECRAWL_BASE_URL}/map`, {
       method: "POST",
       headers: headers(apiKey),
@@ -393,26 +415,18 @@ export async function crawlWebsite(url: string, apiKey: string): Promise<CrawlPa
         ignoreQueryParameters: true,
         limit: 200,
         location: { country: "NL", languages: ["nl-NL", "en-US"] },
-        timeout: 10_000,
+        timeout: mapTimeout,
       }),
-      signal: AbortSignal.timeout(11_000),
+      signal: AbortSignal.timeout(mapTimeout + 1_000),
     });
-    if (!mapResponse.ok) throw new Error(await readError(mapResponse));
+    if (!mapResponse.ok) return [homepage];
     const mapped = (await mapResponse.json()) as FirecrawlMapResponse;
-    if (!mapped.success) throw new Error(mapped.error || "The website map was unavailable.");
-    const pages = await crawlRepresentativePages(homepage, mapped.links || [], model, apiKey, 8);
+    if (!mapped.success) return [homepage];
+    const model = classifyCommercialModel([homepage]);
+    const pages = await crawlRepresentativePages(homepage, mapped.links || [], model, apiKey, limit, pageTimeout);
     return pages;
-  } catch (targetedError) {
-    const recovered = await Promise.allSettled([
-      crawlWebsiteFallback(rootUrl, apiKey),
-      scrapePage(rootUrl, apiKey, 12_000).then((page) => [page]),
-    ]);
-    const fallback = recovered[0];
-    if (fallback.status === "fulfilled" && fallback.value.length) return selectRepresentativeResults(fallback.value, rootUrl, 8);
-    const homepage = recovered[1];
-    if (homepage.status === "fulfilled" && homepage.value.length) return homepage.value;
-    if (fallback.status === "rejected") throw fallback.reason;
-    throw targetedError;
+  } catch {
+    return [homepage];
   }
 }
 
@@ -469,11 +483,17 @@ export async function discoverCompetitorPages(
       seenOrigins.add(origin);
       return true;
     })
-    .slice(0, 4);
+    .slice(0, 3);
 
   const settled = await Promise.allSettled(candidates.map(async (candidate): Promise<CompetitorSiteCrawl> => {
     const origin = new URL(candidate.url).origin;
-    const pages = await crawlWebsite(origin, apiKey);
+    const pages = await crawlWebsite(origin, apiKey, {
+      limit: 5,
+      allowFallback: false,
+      homepageTimeout: 4_000,
+      mapTimeout: 4_500,
+      pageTimeout: 4_000,
+    });
     return { seedUrl: candidate.url, pages };
   }));
   return settled

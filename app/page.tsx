@@ -26,6 +26,7 @@ import {
   Target,
 } from "lucide-react";
 import type { AnalysisResult, Gap } from "@/lib/types";
+import { readAnalysisResponse } from "@/lib/api-response";
 
 type View = "landing" | "loading" | "results";
 type DashboardSection = "overview" | "gaps" | "competitors" | "evidence";
@@ -712,17 +713,17 @@ export default function Home() {
       () => setLoadingStep((current) => Math.min(3, current + 1)),
       720,
     );
+    const controller = new AbortController();
+    const requestTimeout = window.setTimeout(() => controller.abort(), 58_000);
 
     try {
       const response = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(mode === "fixture" ? { mode: "fixture" } : { url }),
+        signal: controller.signal,
       });
-      const payload = (await response.json()) as AnalysisResult | { error?: string };
-      if (!response.ok || !("gaps" in payload)) {
-        throw new Error("error" in payload ? payload.error || "The website could not be analyzed." : "The website could not be analyzed.");
-      }
+      const payload = await readAnalysisResponse(response);
 
       await minimumDelay;
       window.clearInterval(interval);
@@ -732,8 +733,13 @@ export default function Home() {
       setView("results");
     } catch (caught) {
       window.clearInterval(interval);
-      setError(caught instanceof Error ? caught.message : "The website could not be analyzed.");
+      const message = caught instanceof DOMException && caught.name === "AbortError"
+        ? "The scan took too long. Please try again in a moment."
+        : caught instanceof Error ? caught.message : "The website could not be analyzed.";
+      setError(message);
       setView("landing");
+    } finally {
+      window.clearTimeout(requestTimeout);
     }
   }
 
