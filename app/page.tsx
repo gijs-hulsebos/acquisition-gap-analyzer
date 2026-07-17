@@ -11,7 +11,6 @@ import {
   Clock3,
   ExternalLink,
   FileSearch,
-  FormInput,
   Globe2,
   LayoutDashboard,
   Link2,
@@ -33,21 +32,15 @@ type DashboardSection = "overview" | "gaps" | "competitors" | "evidence";
 
 const LOADING_STEPS = [
   { label: "Crawling site", detail: "Pages and links" },
-  { label: "Reading services", detail: "Offer structure" },
-  { label: "Checking paths", detail: "CTA to contact" },
-  { label: "Ranking gaps", detail: "Best fixes first" },
+  { label: "Detecting model", detail: "Business and offer" },
+  { label: "Checking journey", detail: "Actions to conversion" },
+  { label: "Scoring findings", detail: "Three fixed checks" },
 ];
 
 const GAP_ICONS = {
   "offer-clarity": MessageSquareText,
   "cta-clarity": MousePointerClick,
   "customer-journey-path": Link2,
-  cta: MousePointerClick,
-  "service-page": FileSearch,
-  "conversion-path": Link2,
-  "form-friction": FormInput,
-  "message-consistency": MessageSquareText,
-  "trust-signals": ShieldCheck,
 };
 
 function Brand({ onHome }: { onHome: () => void }) {
@@ -312,7 +305,7 @@ function MetricCard({ icon: Icon, value, label }: { icon: typeof Globe2; value: 
 }
 
 function PageComposition({ result }: { result: AnalysisResult }) {
-  const order: Array<AnalysisResult["pages"][number]["type"]> = ["Homepage", "Category", "Product", "Service", "Cart", "Checkout", "Booking", "Quote", "Application", "Contact", "Pricing", "Trust", "Other"];
+  const order: Array<AnalysisResult["pages"][number]["type"]> = ["Homepage", "Category", "Product", "Service", "Cart", "Checkout", "Booking", "Application", "Pricing", "Other"];
   const types = order.filter((type) => result.pages.some((page) => page.type === type));
   const counts = types.map((type) => ({ type, count: result.pages.filter((page) => page.type === type).length }));
 
@@ -359,7 +352,7 @@ function readinessExplanation(score: number | null) {
   if (score >= 80) return "Clear path to enquiry.";
   if (score >= 65) return "Mostly clear, with focused friction.";
   if (score >= 50) return "Several gaps may reduce enquiries.";
-  return "Visitors may lose momentum before contact.";
+  return "Visitors may lose momentum before conversion.";
 }
 
 function donutSegmentPath(startAngle: number, endAngle: number) {
@@ -601,10 +594,8 @@ function TechnicalDetails({ result }: { result: AnalysisResult }) {
           <div className="technical-metrics" aria-label="Crawl statistics">
             <MetricCard icon={Globe2} value={result.stats.pagesCrawled} label="Pages" />
             <MetricCard icon={Link2} value={result.stats.internalLinks} label="Links" />
-            <MetricCard icon={MousePointerClick} value={result.stats.ctasFound} label="CTAs" />
-            <MetricCard icon={FormInput} value={result.stats.formsFound} label="Forms" />
+            <MetricCard icon={MousePointerClick} value={result.stats.actionsFound} label="Actions" />
             <MetricCard icon={BarChart3} value={routeValue} label="Path" />
-            <MetricCard icon={ShieldCheck} value={result.stats.trustSignals} label="Trust types" />
           </div>
         </section>
 
@@ -613,7 +604,6 @@ function TechnicalDetails({ result }: { result: AnalysisResult }) {
           <ul>
             <li>Forms are detected, not submitted.</li>
             <li>CTA text is read from HTML; visual prominence is not measured.</li>
-            <li>Trust signals may be on the same page without being beside the CTA.</li>
             <li>Up to eight representative pages are analyzed, so routes through unselected pages may not be visible.</li>
             <li>Purchases, account creation, bookings and forms are never completed.</li>
           </ul>

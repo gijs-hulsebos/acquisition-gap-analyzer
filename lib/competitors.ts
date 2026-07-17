@@ -1,4 +1,4 @@
-import { analyzeCrawl, detectTrustSignals } from "./analyzer";
+import { analyzeCrawl } from "./analyzer";
 import type { CompetitorSiteCrawl } from "./firecrawl";
 import type {
   AnalysisResult,
@@ -27,34 +27,14 @@ export function analyzeCompetitorSite(
     ...finding,
     evidence: finding.evidence.map(competitorEvidence),
   }));
-  const offer = findings.find((finding) => finding.id === "offer-clarity")!;
-  const cta = findings.find((finding) => finding.id === "cta-clarity")!;
-  const path = findings.find((finding) => finding.id === "customer-journey-path")!;
-  const trustSignals = Array.from(new Set(site.pages.flatMap((page) => detectTrustSignals(`${page.markdown} ${page.description}`, page.html))));
-  const primaryEvidence = (finding: Gap) => finding.evidence[0] || {
-    statement: finding.summary,
-    pageLabel: "Representative competitor crawl",
-    url: site.seedUrl,
-    source: "competitor" as const,
-  };
-
   return {
     name: deterministic.companyName,
     url: analyzedOrigin(site.pages),
     pageTitle: site.pages[0]?.title || deterministic.companyName,
     label: "Likely public search competitor",
-    dedicatedServicePage: deterministic.pages.some((page) => page.type === "Service" || page.type === "Category" || page.type === "Product"),
-    ctaClarity: cta.score,
-    conversionPathSteps: deterministic.overview.estimatedClicks,
     pagesAnalyzed: deterministic.stats.pagesCrawled,
     dataStatus: deterministic.readiness.status,
-    trustSignals,
     findings,
-    metrics: [
-      { label: "Offer Clarity", value: offer.score === null ? "Insufficient data" : `${offer.score}/100`, evidence: primaryEvidence(offer) },
-      { label: "CTA clarity", value: cta.score === null ? "Insufficient data" : `${cta.score}/100`, evidence: primaryEvidence(cta) },
-      { label: "Customer Journey Path", value: path.score === null ? "Insufficient data" : deterministic.overview.estimatedClicks === null ? "Unconfirmed" : `${deterministic.overview.estimatedClicks} click${deterministic.overview.estimatedClicks === 1 ? "" : "s"}`, evidence: primaryEvidence(path) },
-    ],
   };
 }
 

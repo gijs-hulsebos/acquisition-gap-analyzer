@@ -2,8 +2,8 @@ export type Confidence = "High" | "Medium" | "Low";
 export type Severity = "Critical" | "High" | "Medium" | "Low";
 export type AnalysisMode = "live" | "fixture";
 export type BusinessModel = "Ecommerce" | "Lead generation" | "Appointment or booking" | "Software or subscription" | "Professional services" | "Local service business" | "Marketplace" | "Informational or non-commercial";
-export type ConversionType = "Checkout" | "Add to cart" | "Quote request" | "Appointment booking" | "Demo request" | "Application" | "Lead form" | "Contact" | "Signup or subscription" | "No clear conversion";
-export type JourneyPageType = "Homepage" | "Category" | "Product" | "Service" | "Cart" | "Checkout" | "Booking" | "Quote" | "Application" | "Contact" | "Pricing" | "Trust" | "Other";
+export type ConversionType = "Checkout" | "Add to cart" | "Appointment booking" | "Demo request" | "Application" | "Lead form" | "Signup or subscription" | "No clear conversion";
+export type JourneyPageType = "Homepage" | "Category" | "Product" | "Service" | "Cart" | "Checkout" | "Booking" | "Application" | "Pricing" | "Other";
 
 export type JourneyStage = {
   order: number;
@@ -40,26 +40,9 @@ export type JourneyAnalysis = {
   secondary: CustomerJourney[];
 };
 
-export type GapId =
-  | "offer-clarity"
-  | "cta-clarity"
-  | "customer-journey-path"
-  | "cta"
-  | "service-page"
-  | "conversion-path"
-  | "form-friction"
-  | "message-consistency"
-  | "trust-signals";
+export type GapId = "offer-clarity" | "cta-clarity" | "customer-journey-path";
 
-export type ReadinessCategoryId =
-  | "offer-clarity"
-  | "customer-journey-path"
-  | "cta-clarity"
-  | "service-page-coverage"
-  | "conversion-path-quality"
-  | "form-friction"
-  | "message-consistency"
-  | "trust-signals";
+export type ReadinessCategoryId = GapId;
 
 export type Evidence = {
   statement: string;
@@ -101,37 +84,15 @@ export type ReadinessCalculation = {
   categories: ReadinessCategory[];
 };
 
-export type TrustSignalType =
-  | "Reviews or ratings"
-  | "Testimonials"
-  | "Client logos"
-  | "Certifications"
-  | "Case studies"
-  | "Guarantees"
-  | "Delivery or returns"
-  | "Payment information"
-  | "Contact details";
-
-export type CompetitorMetric = {
-  label: string;
-  value: string;
-  evidence: Evidence;
-};
-
 export type PublicSearchCompetitor = {
   name: string;
   url: string;
   pageTitle: string;
   label: "Likely public search competitor";
-  dedicatedServicePage: boolean;
-  ctaClarity: number | null;
-  conversionPathSteps: number | null;
   pagesAnalyzed: number;
   dataStatus: "scored" | "insufficient-data";
-  trustSignals: TrustSignalType[];
   /** The same three deterministic findings used for the analyzed company. */
   findings: Gap[];
-  metrics: CompetitorMetric[];
 };
 
 export type RejectedCompetitor = {
@@ -177,11 +138,7 @@ export type ResolvedCompanyEntity = {
 export type CrawlStats = {
   pagesCrawled: number;
   internalLinks: number;
-  ctasFound: number;
-  formsFound: number;
-  formFields: number;
-  servicePages: number;
-  trustSignals: number;
+  actionsFound: number;
   conversionPathSteps: number | null;
   processingMs: number;
 };

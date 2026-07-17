@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { analyzeCrawl, detectTrustSignals } from "../lib/analyzer";
+import { analyzeCrawl } from "../lib/analyzer";
 import { readAnalysisResponse } from "../lib/api-response";
 import { analyzeCompetitorPage, analyzeCompetitorSite, applyCompetitorAnalysis } from "../lib/competitors";
 import { buildDeterministicEntityProfile, competitorCandidateScore } from "../lib/entity";
@@ -81,31 +81,14 @@ describe("weighted readiness", () => {
   });
 });
 
-describe("trust-signal analysis", () => {
-  it("detects configured visible trust evidence deterministically", () => {
-    const signals = detectTrustSignals(
-      "Klanten geven ons 4.9 sterren. KIWA gecertificeerd. 10 jaar garantie. Bel 030 123 45 67.",
-    );
-    expect(signals).toEqual(expect.arrayContaining(["Reviews or ratings", "Certifications", "Guarantees", "Contact details"]));
-  });
-
-  it("keeps trust detection separate from the three-report contract", () => {
-    const result = analyzeCrawl(scoredSite({ trustOnContact: false }), "https://voorbeeld.nl/", 900);
-    expect(result.gaps).toHaveLength(3);
-    expect(result.stats.trustSignals).toEqual(expect.any(Number));
-  });
-});
-
 describe("lightweight competitor analysis", () => {
   it("uses the same three deterministic checks across representative competitor pages", () => {
     const pages = scoredSite({ trustOnContact: true }).map((item) => ({ ...item, url: item.url.replace("voorbeeld.nl", "concurrent.nl"), links: item.links.map((link) => link.replace("voorbeeld.nl", "concurrent.nl")) }));
     const competitor = analyzeCompetitorSite({ seedUrl: pages[0].url, pages }, "Warmtepompinstallatie voor woningen");
     const direct = analyzeCrawl(pages, "https://concurrent.nl/", 0);
     expect(competitor.label).toBe("Likely public search competitor");
-    expect(competitor.dedicatedServicePage).toBe(true);
     expect(competitor.dataStatus).toBe("scored");
     expect(competitor.pagesAnalyzed).toBe(3);
-    expect(competitor.metrics.map((metric) => metric.label)).toEqual(["Offer Clarity", "CTA clarity", "Customer Journey Path"]);
     expect(competitor.findings.map((finding) => finding.id)).toEqual(["offer-clarity", "cta-clarity", "customer-journey-path"]);
     expect(competitor.findings.map((finding) => finding.score)).toEqual(direct.gaps.map((finding) => finding.score));
   });
@@ -116,7 +99,7 @@ describe("lightweight competitor analysis", () => {
     expect(competitor.findings.every((finding) => finding.score === null)).toBe(true);
   });
 
-  it("adds competitor evidence only to findings that already exist", () => {
+  it("shows an accepted competitor in the report without changing the fixed findings", () => {
     const result = analyzeCrawl(scoredSite({ trustOnContact: false }), "https://voorbeeld.nl/", 500);
     const originalIds = result.gaps.map((gap) => gap.id);
     const competitorPages = [
@@ -130,6 +113,7 @@ describe("lightweight competitor analysis", () => {
 
     expect(compared.gaps.map((gap) => gap.id)).toEqual(originalIds);
     expect(compared.competitors.competitors).toHaveLength(1);
+    expect(compared.competitors.competitors[0].url).toBe("https://concurrent.nl");
     expect(compared.competitors.competitors[0].findings).toHaveLength(3);
     expect(compared.competitors.competitors[0].findings.every((finding) => finding.evidence.every((evidence) => evidence.source === "competitor"))).toBe(true);
   });
@@ -205,7 +189,7 @@ describe("entity-first competitor discovery", () => {
       confidence: "High",
       method: "deterministic",
     };
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const requestUrl = String(input);
       if (requestUrl.endsWith("/search")) {
         return new Response(JSON.stringify({ success: true, data: { web: [
@@ -213,9 +197,11 @@ describe("entity-first competitor discovery", () => {
           { title: "Dille & Kamille reviews", description: "Reviews en ervaringen.", url: "https://trustpilot.com/review/dille-kamille.nl" },
           { title: "Boekhoudsoftware", description: "Software voor accountants.", url: "https://softwarewinkel.nl/" },
           { title: "Andere Woonwinkel", description: "Nederlandse webshop met woonaccessoires, servies en cadeaus.", url: "https://andere-woonwinkel.nl/" },
+          { title: "Onbereikbare Woonwinkel", description: "Nederlandse webshop met woonaccessoires, servies en cadeaus.", url: "https://onbereikbare-woonwinkel.nl/" },
         ] } }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (requestUrl.endsWith("/scrape")) {
+        if (String(init?.body || "").includes("onbereikbare-woonwinkel.nl")) throw new Error("Crawl unavailable");
         return new Response(JSON.stringify({ success: true, data: {
           markdown: "Woonaccessoires, servies en cadeaus. Bekijk ons assortiment. Product € 12,95. Product € 18,95.",
           html: '<h1>Woonaccessoires, servies en cadeaus</h1><a href="/collectie">Bekijk assortiment</a><div class="product-card">€ 12,95</div><div class="product-card">€ 18,95</div>',
@@ -236,13 +222,27 @@ describe("entity-first competitor discovery", () => {
       "Same company or a regional version of the submitted company.",
       "Directory, blog, review site or other non-commercial result.",
       "Insufficient industry, offer, geography or target-customer match.",
+      "The accepted competitor domain could not be read within the crawl budget.",
     ]));
+    expect(discovery.rejected.find((item) => item.url === "https://onbereikbare-woonwinkel.nl/")?.crawled).toBe(true);
     const scrapedBodies = fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/scrape")).map(([, init]) => String(init?.body));
-    expect(scrapedBodies).toHaveLength(1);
-    expect(scrapedBodies[0]).toContain("andere-woonwinkel.nl");
+    expect(scrapedBodies).toHaveLength(2);
+    expect(scrapedBodies.some((body) => body.includes("andere-woonwinkel.nl"))).toBe(true);
+    expect(scrapedBodies.some((body) => body.includes("onbereikbare-woonwinkel.nl"))).toBe(true);
     expect(scrapedBodies.join(" ")).not.toContain("dille-kamille.be");
     expect(scrapedBodies.join(" ")).not.toContain("trustpilot.com");
     expect(scrapedBodies.join(" ")).not.toContain("softwarewinkel.nl");
+    const auditedOrigins = new Set([
+      ...discovery.accepted.map((site) => new URL(site.seedUrl).origin),
+      ...discovery.rejected.map((item) => new URL(item.url).origin),
+    ]);
+    expect(auditedOrigins).toEqual(new Set([
+      "https://dille-kamille.be",
+      "https://trustpilot.com",
+      "https://softwarewinkel.nl",
+      "https://andere-woonwinkel.nl",
+      "https://onbereikbare-woonwinkel.nl",
+    ]));
   });
 });
 
@@ -261,14 +261,13 @@ describe("representative customer journeys", () => {
     ];
     const selected = selectRepresentativeResults(pages, "https://winkel.nl/", 8);
     expect(selected[0].url).toBe("https://winkel.nl/");
-    expect(selected).toHaveLength(6);
+    expect(selected).toHaveLength(5);
     expect(selected.filter((item) => /\/products\//.test(item.url))).toHaveLength(1);
     expect(selected.every((item) => new URL(item.url).origin === "https://winkel.nl")).toBe(true);
     expect(selected.map((item) => item.url)).toEqual(expect.arrayContaining([
       "https://winkel.nl/collecties/keuken",
       "https://winkel.nl/cart",
       "https://winkel.nl/checkout",
-      "https://winkel.nl/retour",
     ]));
   });
   it("classifies the landing page before choosing a journey template", () => {
@@ -306,6 +305,14 @@ describe("representative customer journeys", () => {
     expect(result.journey.primary.stages.map((stage) => stage.pageType)).toEqual(["Homepage", "Category", "Product", "Cart", "Checkout"]);
     expect(result.journey.primary.additionalObservableActions).toBeNull();
     expect(result.gaps.map((gap) => gap.title)).toEqual(["Offer Clarity", "CTA Clarity", "Customer Journey Path"]);
+    expect(result.gaps.map((gap) => `${gap.summary} ${gap.nextAction}`).join(" ")).not.toMatch(/service page|offerte|quote|contact path/i);
+    expect(result.gaps.find((gap) => gap.id === "cta-clarity")?.evidence.map((item) => item.pageLabel)).toEqual([
+      "product discovery",
+      "product selection",
+      "Add to cart",
+      "Cart",
+      "Checkout",
+    ]);
   });
 
   it("never treats an empty cart or directly scraped checkout as a short completed journey", () => {
@@ -346,8 +353,8 @@ describe("representative customer journeys", () => {
     const result = analyzeCrawl(scoredSite({ trustOnContact: true }), "https://voorbeeld.nl/", 300);
     const offer = result.gaps.find((gap) => gap.id === "offer-clarity")!;
     expect(offer.evidence).toHaveLength(3);
-    expect(offer.evidence.map((item) => item.pageLabel)).toEqual(["Homepage and offer pages", "Audience evidence", "Value proposition evidence"]);
-    expect(offer.summary).toMatch(/identifies|can identify/i);
+    expect(offer.evidence.map((item) => item.pageLabel)).toEqual(["What is sold", "Who it is for", "Why it is relevant"]);
+    expect(offer.summary).toMatch(/what is sold|representative content/i);
     expect(offer.nextAction.length).toBeGreaterThan(20);
   });
 

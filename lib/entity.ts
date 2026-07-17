@@ -61,7 +61,7 @@ function inferBusinessModel(text: string): ResolvedCompanyEntity["businessModel"
   if (/\b(fabrikant|producent|groothandel|distributeur|dealer netwerk)\b/i.test(text)) return "manufacturing-wholesale";
   if (/\b(hotel|restaurant|catering|vakantie|overnachting)\b/i.test(text)) return "hospitality";
   if (/\b(adviseur|consultancy|accountant|advocaat|marketingbureau|bureau)\b/i.test(text)) return "professional-service";
-  if (/\b(offerte|afspraak|installatie|onderhoud|reparatie|werkgebied|service aan huis)\b/i.test(text)) return "local-service";
+  if (/\b(installatie|onderhoud|reparatie|werkgebied|service aan huis)\b/i.test(text)) return "local-service";
   return "other";
 }
 
@@ -210,10 +210,10 @@ export function competitorCandidateScore(entity: ResolvedCompanyEntity, candidat
   const modelMatch = entity.businessModel === "retail-ecommerce"
     ? /\b(webshop|winkel|collectie|producten|shop|assortiment|online bestellen)\b/i.test(haystack)
     : entity.businessModel === "local-service"
-      ? /\b(offerte|advies|installatie|onderhoud|specialist|service)\b/i.test(haystack)
+      ? /\b(advies|installatie|onderhoud|specialist|service)\b/i.test(haystack)
       : true;
   const path = new URL(candidate.url).pathname;
-  const commercialPath = path !== "/" && /\/(diensten?|services?|oplossingen?|producten?|collectie|aanbod|offerte|shop)\b/i.test(path);
+  const commercialPath = path !== "/" && /\/(diensten?|services?|oplossingen?|producten?|collectie|aanbod|shop)\b/i.test(path);
   const semanticMatch = entity.businessModel === "retail-ecommerce" ? retailCategoryMatch || industryMatches >= 1 || offeringMatches >= 1 : industryMatches >= 1 || offeringMatches >= 2;
   if (!semanticMatch || !modelMatch) return -100;
   return industryMatches * 5 + offeringMatches * 3 + geographyMatches * 2 + (commercialPath ? 3 : 0) + (modelMatch ? 3 : 0) + (retailCategoryMatch ? 4 : 0);

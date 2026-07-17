@@ -221,12 +221,11 @@ function representativeKind(link: FirecrawlMapLink, baseUrl: string): JourneyRol
   if (path === "/") return "homepage";
   if (/\/(checkout|afrekenen|kassa|payment|betalen)(\/|$)/i.test(path)) return "checkout";
   if (/\/(cart|basket|bag|winkelmand|mandje)(\/|$)/i.test(path)) return "cart";
-  if (/\/(contact|offerte|quote|booking|boeken|afspraak|demo|aanvraag|application|apply|signup|register|trial)(\/|$)/i.test(path)) return "conversion";
+  if (/\/(booking|boeken|afspraak|demo|aanvraag|application|apply|signup|register|trial)(\/|$)/i.test(path)) return "conversion";
   if (/\/(products?|product|p|artikel|item)(\/|$)/i.test(path) || /\b(product detail|artikelnummer|in winkelmand|add to cart|sku)\b/i.test(text) || (PRICE_SIGNAL.test(text) && path.split("/").filter(Boolean).length >= 2)) return "product";
   if (/\/(collections?|collecties?|categories?|categorie|catalogus|shop|winkel|assortiment|search|zoeken?|zoekresultaten?)(\/|$)/i.test(path) || /\b(collectie|categorie|assortiment|shop all|bekijk alles|zoekresultaten)\b/i.test(text)) return "category";
   if (/\/(diensten?|services?|oplossingen?|solutions?)(\/|$)/i.test(path)) return "service";
   if (/\/(pricing|prijzen|tarieven|abonnementen)(\/|$)/i.test(path)) return "pricing";
-  if (/\/(delivery|shipping|bezorg|retour|returns?|garantie|guarantee|faq|veelgestelde-vragen|keurmerken?)(\/|$)/i.test(path)) return "trust";
   return "other";
 }
 
@@ -243,7 +242,6 @@ function representativeScore(link: FirecrawlMapLink, kind: JourneyRole) {
     category: 70,
     service: 70,
     pricing: 65,
-    trust: 55,
     other: 0,
   };
   return kindBonus[kind] + titleBonus - depth;
@@ -326,12 +324,12 @@ function chooseJourneyCandidate(
 }
 
 function representativePlan(model: CommercialModel): JourneyRole[] {
-  if (model === "ecommerce") return ["category", "product", "cart", "checkout", "trust", "pricing", "conversion"];
-  if (model === "booking") return ["service", "service", "conversion", "pricing", "trust"];
-  if (model === "software") return ["pricing", "service", "conversion", "trust"];
-  if (model === "marketplace") return ["category", "product", "conversion", "pricing", "trust"];
-  if (model === "service") return ["service", "service", "conversion", "pricing", "trust"];
-  return ["service", "conversion", "pricing", "trust"];
+  if (model === "ecommerce") return ["category", "product", "cart", "checkout"];
+  if (model === "booking") return ["service", "service", "conversion", "pricing"];
+  if (model === "software") return ["pricing", "service", "conversion"];
+  if (model === "marketplace") return ["category", "product", "conversion", "pricing"];
+  if (model === "service") return ["service", "service", "conversion", "pricing"];
+  return ["service", "conversion", "pricing"];
 }
 
 export function selectRepresentativeResults(pages: CrawlPage[], baseUrl: string, limit = 8) {
@@ -551,12 +549,12 @@ export async function discoverCompetitorPages(
   const settled = await Promise.allSettled(candidates.map(async (candidate): Promise<CompetitorSiteCrawl> => {
     const origin = new URL(candidate.url).origin;
     const pages = await crawlWebsite(origin, apiKey, {
-      limit: 5,
+      limit: 8,
       allowFallback: false,
       homepageTimeout: 3_500,
       mapTimeout: 3_500,
       pageTimeout: 3_000,
-      followLinkedJourney: false,
+      followLinkedJourney: true,
     });
     return { seedUrl: candidate.url, pages };
   }));

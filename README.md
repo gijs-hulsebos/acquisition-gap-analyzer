@@ -10,11 +10,10 @@ The result is an MVP heuristic based on public website evidence. It is not conve
 - Four-step loading experience
 - `POST /api/analyze` endpoint with URL validation and local/private-address blocking
 - Homepage-first business classification followed by up to eight representative same-domain pages
-- Extraction of homepage, service/contact pages, CTAs, forms and internal links
+- Extraction of representative first-party pages, actions, forms and internal links
 - Three-metric weighted conversion-readiness overview
 - Structured primary customer journey with every required user action and an explicit complete/incomplete status
 - Exactly three evidence-backed findings: Offer Clarity, CTA Clarity and Customer Journey Path
-- Visible trust-signal analysis on important commercial pages
 - Entity-first comparison with up to two matching Dutch public-search competitors, each checked across representative pages
 - Optional OpenRouter report-copy rewrite; it cannot generate, score, rank or rename findings
 - Responsive dark dashboard with expandable evidence and crawl details
@@ -24,7 +23,7 @@ The result is an MVP heuristic based on public website evidence. It is not conve
 | Category | Weight | What is measured |
 | --- | ---: | --- |
 | Offer Clarity | 35% | Whether a new visitor can identify what is sold, who it is for and why they should choose it from headings, supporting copy and representative offer pages |
-| CTA Clarity | 30% | Whether the landing page exposes a specific commercial action rather than generic prompts |
+| CTA Clarity | 30% | Whether the representative journey exposes explicit, linked actions; ecommerce checks discovery, selection, Add to cart, Cart and Checkout |
 | Customer Journey Path | 35% | A fully evidenced route from arrival to the primary conversion interface, including state-changing actions such as add to cart |
 
 The score is calculated as:
@@ -42,7 +41,7 @@ The JSON response always contains the overview and the same three findings in th
 1. The server validates and normalizes the submitted URL.
 2. Firecrawl resolves the submitted domain and scrapes its homepage first.
 3. The landing-page evidence classifies the commercial model before any journey pages are selected: ecommerce, booking, software/subscription, marketplace, service or informational.
-4. A model-specific representative-page plan is loaded. Ecommerce prioritizes category, one product, cart, checkout and trust/returns pages; services prioritize service overview/detail, quote/contact and trust/pricing pages; software prioritizes pricing, product/service, signup/demo and trust pages.
+4. A model-specific representative-page plan is loaded. Ecommerce selects one linked category/search page, one linked product, cart and checkout. Other models select representative offer, pricing and conversion pages.
 5. Firecrawl Map is used only as a same-domain lookup for those representative roles.
 6. At most one representative product page is retained, preventing a product catalogue from crowding out journey evidence. Up to eight useful pages are returned.
 7. Ecommerce verifies one complete route: homepage → category/search → product → add to cart → cart → checkout. Every link or button must be present, a directly requested empty cart is never treated as converted state, and missing proof produces `Incomplete journey`.
@@ -60,7 +59,6 @@ The current MVP:
 
 - Detects HTML forms but does not submit them.
 - Detects CTA text in HTML but does not prove that a CTA is visually prominent.
-- Detects trust signals on the same important page but does not prove they are positioned beside the CTA or form.
 - Analyzes at most eight representative journey pages after mapping the domain.
 - Cannot confirm a conversion route that passes through pages outside the selected page set.
 - Never places an order, creates an account, books an appointment or submits a form.
@@ -128,4 +126,4 @@ npm test
 npm run build
 ```
 
-The current automated tests cover the stable three-finding JSON contract, the three-page evidence threshold, representative-page diversity, trust detection, competitor scoring parity, entity resolution, competitor-failure isolation and service/ecommerce journey construction. Live Firecrawl/OpenRouter calls and browser interactions are not part of the automated test suite.
+The current automated tests cover the stable three-finding JSON contract, the three-page evidence threshold, business-model separation, empty-cart journey rules, representative-page diversity, competitor scoring parity, entity resolution, competitor audit reasons and failure isolation. Live Firecrawl/OpenRouter calls and browser interactions are not part of the automated test suite.

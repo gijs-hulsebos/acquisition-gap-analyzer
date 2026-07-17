@@ -1,7 +1,7 @@
 import type { BusinessModel, CrawlPage } from "./types";
 
 export type CommercialModel = "ecommerce" | "booking" | "software" | "marketplace" | "service" | "informational";
-export type JourneyRole = "homepage" | "category" | "product" | "service" | "cart" | "checkout" | "conversion" | "pricing" | "trust" | "other";
+export type JourneyRole = "homepage" | "category" | "product" | "service" | "cart" | "checkout" | "conversion" | "pricing" | "other";
 
 function visibleText(page: CrawlPage) {
   return `${page.url} ${page.title} ${page.description} ${page.markdown.slice(0, 6000)} ${page.html.slice(0, 12000)}`.toLowerCase();
@@ -30,8 +30,8 @@ export function classifyCommercialModel(pages: CrawlPage[]): CommercialModel {
   if (/\b(saas|software|platform|cloud|subscription|abonnement)\b/i.test(text)) scores.software += 5;
   if (/\b(start trial|free trial|proefperiode|sign up|registreer|request demo|boek een demo)\b/i.test(text)) scores.software += 5;
   if (/\b(marketplace|marktplaats|aanbieders|verkopers|providers vergelijken|boek een professional)\b/i.test(text)) scores.marketplace += 8;
-  if (/\b(offerte|prijsopgave|contact opnemen|adviesgesprek|onze diensten|service aan huis|installatie|onderhoud|reparatie)\b/i.test(text)) scores.service += 5;
-  if (/\/(diensten?|services?|oplossingen?|offerte|contact)\b/i.test(text)) scores.service += 3;
+  if (/\b(onze diensten|service aan huis|installatie|onderhoud|reparatie|consultancy|adviesbureau)\b/i.test(text)) scores.service += 5;
+  if (/\/(diensten?|services?|oplossingen?)\b/i.test(text)) scores.service += 3;
 
   const ranked = (Object.entries(scores) as Array<[CommercialModel, number]>).filter(([model]) => model !== "informational").sort((a, b) => b[1] - a[1]);
   return ranked[0]?.[1] > 0 ? ranked[0][0] : "informational";
