@@ -38,6 +38,9 @@ const LOADING_STEPS = [
 ];
 
 const GAP_ICONS = {
+  "offer-clarity": MessageSquareText,
+  "cta-clarity": MousePointerClick,
+  "customer-journey-path": Link2,
   cta: MousePointerClick,
   "service-page": FileSearch,
   "conversion-path": Link2,
@@ -327,7 +330,7 @@ function GapCard({ gap }: { gap: Gap }) {
         <span className={`gap-icon gap-icon-${gap.id}`}><Icon size={19} /></span>
         <div className="finding-title">
           <div><span className={`severity severity-${gap.severity.toLowerCase()}`}>{gap.severity}</span></div>
-          <h3>{gap.title}</h3>
+          <h3>{gap.title} <span className="finding-score">{gap.score}/100</span></h3>
           <p>{gap.summary}</p>
           <div className="finding-action-preview"><span>Recommended action</span><strong>{gap.nextAction}</strong></div>
         </div>
@@ -490,37 +493,20 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
 
 function CompetitorComparison({ result }: { result: AnalysisResult }) {
   const competitors = result.competitors.competitors;
-  const ctaScore = result.readiness.categories.find((item) => item.id === "cta-clarity")?.score;
-  const trustScore = result.readiness.categories.find((item) => item.id === "trust-signals")?.score;
-  const pathValue = result.stats.conversionPathSteps === null ? "Not visible" : result.stats.conversionPathSteps === 0 ? "Form on page" : `${result.stats.conversionPathSteps} steps`;
-  const rows = [
-    { label: "Dedicated service pages", site: `${result.stats.servicePages} found`, values: competitors.map((item) => item.dedicatedServicePage ? "Visible" : "Not clear") },
-    { label: "CTA clarity", site: ctaScore === null || ctaScore === undefined ? "Not scored" : `${ctaScore}/100`, values: competitors.map((item) => `${item.ctaClarity}/100`) },
-    { label: "Direct conversion path", site: pathValue, values: competitors.map((item) => item.conversionPathSteps === 0 ? "Form on page" : item.conversionPathSteps === 1 ? "1 step" : "Not visible") },
-    { label: "Trust signals", site: trustScore === null || trustScore === undefined ? "Not scored" : `${trustScore}/100`, values: competitors.map((item) => `${item.trustSignals.length} types`) },
-  ];
-  const hasShorterPath = competitors.some((item) => item.conversionPathSteps !== null && result.stats.conversionPathSteps !== null && item.conversionPathSteps < result.stats.conversionPathSteps);
-  const hasClearerCta = competitors.some((item) => ctaScore !== null && ctaScore !== undefined && item.ctaClarity > ctaScore);
-  const hasTrustContext = result.gaps.some((gap) => gap.id === "trust-signals") && competitors.some((item) => item.trustSignals.length > 0);
-  const comparisonSignals = [
-    hasShorterPath ? "shorter direct quote paths" : null,
-    hasTrustContext ? "more visible trust proof" : null,
-    !hasShorterPath && hasClearerCta ? "clearer calls to action" : null,
-  ].filter((item): item is string => Boolean(item));
-  const competitorLead = competitors.length === 2 ? "Two" : competitors.length === 1 ? "One" : "No";
-  const comparisonSummary = comparisonSignals.length
-    ? `${competitorLead} likely public search competitor${competitors.length === 1 ? "" : "s"} show ${comparisonSignals.join(" and ")} on their selected pages.`
-    : "A compact comparison of the selected commercial pages returned by public search.";
+  const rows = result.gaps.map((siteFinding) => ({
+    siteFinding,
+    competitorFindings: competitors.map((competitor) => competitor.findings.find((finding) => finding.id === siteFinding.id)),
+  }));
 
   return (
     <section className="competitor-section" id="competitors">
       <div className="section-heading competitor-heading">
         <div>
-          <h2>Likely public search competitors</h2>
+          <h2>Public search competitors</h2>
         </div>
         <span className="finding-count">{competitors.length} checked</span>
       </div>
-      <p className="competitor-summary">{comparisonSummary}</p>
+      <p className="competitor-summary">The same three deterministic findings, compared with up to two likely public search competitors.</p>
       {competitors.length ? (
         <div
           className="competitor-table"
@@ -537,10 +523,16 @@ function CompetitorComparison({ result }: { result: AnalysisResult }) {
               </a>
             ))}
           </div>
-          {rows.map((row) => (
-            <div className="competitor-table-row" role="row" key={row.label}>
-              <span>{row.label}</span><strong>{row.site}</strong>
-              {row.values.map((value, index) => <span key={`${row.label}-${competitors[index]?.url}`}>{value}</span>)}
+          {rows.map(({ siteFinding, competitorFindings }) => (
+            <div className="competitor-table-row competitor-finding-row" role="row" key={siteFinding.id}>
+              <span>{siteFinding.title}</span>
+              <span><strong>{siteFinding.score}/100</strong><small>{siteFinding.summary}</small></span>
+              {competitorFindings.map((finding, index) => (
+                <span key={`${siteFinding.id}-${competitors[index]?.url}`}>
+                  <strong>{finding ? `${finding.score}/100` : "Not scored"}</strong>
+                  <small>{finding?.summary || "No comparable public evidence."}</small>
+                </span>
+              ))}
             </div>
           ))}
           <footer>{result.competitors.note}</footer>

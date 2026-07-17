@@ -40,6 +40,9 @@ export type JourneyAnalysis = {
 };
 
 export type GapId =
+  | "offer-clarity"
+  | "cta-clarity"
+  | "customer-journey-path"
   | "cta"
   | "service-page"
   | "conversion-path"
@@ -48,6 +51,8 @@ export type GapId =
   | "trust-signals";
 
 export type ReadinessCategoryId =
+  | "offer-clarity"
+  | "customer-journey-path"
   | "cta-clarity"
   | "service-page-coverage"
   | "conversion-path-quality"
@@ -68,7 +73,7 @@ export type Gap = {
   title: string;
   summary: string;
   severity: Severity;
-  /** Impact score: higher means a more important gap. */
+  /** Deterministic quality score: higher is better. */
   score: number;
   confidence: Confidence;
   evidence: Evidence[];
@@ -101,6 +106,8 @@ export type TrustSignalType =
   | "Certifications"
   | "Case studies"
   | "Guarantees"
+  | "Delivery or returns"
+  | "Payment information"
   | "Contact details";
 
 export type CompetitorMetric = {
@@ -118,7 +125,18 @@ export type PublicSearchCompetitor = {
   ctaClarity: number;
   conversionPathSteps: number | null;
   trustSignals: TrustSignalType[];
+  /** The same three deterministic findings used for the analyzed company. */
+  findings: Gap[];
   metrics: CompetitorMetric[];
+};
+
+export type ReportOverview = {
+  score: number;
+  status: "Strong" | "Mixed" | "Needs attention";
+  explanation: string;
+  businessModel: BusinessModel;
+  primaryConversion: ConversionType;
+  estimatedClicks: number | null;
 };
 
 export type CompetitorAnalysis = {
@@ -169,6 +187,9 @@ export type AnalysisResult = {
   confidence: Confidence;
   analyzedAt: string;
   summary: string;
+  /** Stable, deterministic overview returned by the JSON API. */
+  overview: ReportOverview;
+  /** Always contains Offer Clarity, CTA Clarity and Customer Journey Path in that order. */
   gaps: Gap[];
   stats: CrawlStats;
   market: {

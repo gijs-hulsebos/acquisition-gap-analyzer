@@ -1,6 +1,6 @@
 import type { AnalysisResult, Gap } from "./types";
 
-type Rewrite = Pick<Gap, "id" | "title" | "summary"> & { nextAction: string };
+type Rewrite = Pick<Gap, "id" | "summary"> & { nextAction: string };
 
 export async function enhanceFindings(
   result: AnalysisResult,
@@ -25,15 +25,15 @@ export async function enhanceFindings(
           {
             role: "system",
             content:
-              "Rewrite only the supplied facts in plain English. Add nothing. Keep titles under 7 words, summaries under 14 words and actions under 12 words.",
+              "Write concise report copy only from the supplied deterministic JSON. Do not create, remove, rename, score or rank findings. Add no facts. Keep summaries under 18 words and actions under 14 words.",
           },
           {
             role: "user",
             content: JSON.stringify(
               result.gaps.map((gap) => ({
                 id: gap.id,
-                title: gap.title,
                 summary: gap.summary,
+                score: gap.score,
                 evidence: gap.evidence.map((item) => item.statement),
                 nextAction: gap.nextAction,
               })),
@@ -58,19 +58,15 @@ export async function enhanceFindings(
                       id: {
                         type: "string",
                         enum: [
-                          "cta",
-                          "service-page",
-                          "conversion-path",
-                          "form-friction",
-                          "message-consistency",
-                          "trust-signals",
+                          "offer-clarity",
+                          "cta-clarity",
+                          "customer-journey-path",
                         ],
                       },
-                      title: { type: "string" },
                       summary: { type: "string" },
                       nextAction: { type: "string" },
                     },
-                    required: ["id", "title", "summary", "nextAction"],
+                    required: ["id", "summary", "nextAction"],
                     additionalProperties: false,
                   },
                 },
@@ -103,7 +99,7 @@ export async function enhanceFindings(
       gaps: result.gaps.map((gap) => {
         const rewrite = rewrites.get(gap.id);
         return rewrite
-          ? { ...gap, title: rewrite.title, summary: rewrite.summary, nextAction: rewrite.nextAction }
+          ? { ...gap, summary: rewrite.summary, nextAction: rewrite.nextAction }
           : gap;
       }),
     };

@@ -1,6 +1,5 @@
 import type {
   AnalysisResult,
-  BusinessModel,
   Confidence,
   ConversionType,
   CrawlPage,
@@ -15,6 +14,8 @@ import type {
   TrustSignalType,
 } from "./types";
 import { normalizePageUrl } from "./url";
+import { classifyCommercialModel, publicBusinessModels } from "./journey-model";
+import type { CommercialModel } from "./journey-model";
 
 type Clickable = { text: string; href: string | null };
 type FormFacts = { fieldCount: number; requiredCount: number };
@@ -43,7 +44,9 @@ const APPLICATION_ACTION = /\b(aanvraag|application|apply|solliciteer)\b/i;
 const SIGNUP_ACTION = /\b(sign up|signup|registreer|account aanmaken|start trial|proefperiode|abonneer)\b/i;
 
 const CATEGORY_WEIGHTS = {
-  "cta-clarity": 20,
+  "offer-clarity": 35,
+  "cta-clarity": 30,
+  "customer-journey-path": 35,
   "service-page-coverage": 20,
   "conversion-path-quality": 20,
   "form-friction": 15,
@@ -81,6 +84,14 @@ const TRUST_PATTERNS: Array<{ type: TrustSignalType; patterns: RegExp[] }> = [
   {
     type: "Guarantees",
     patterns: [/\b(garantie|gegarandeerd|niet goed.{0,20}geld terug|tevredenheidsgarantie|satisfaction guarantee)\b/i],
+  },
+  {
+    type: "Delivery or returns",
+    patterns: [/\b(bezorging|verzending|levertijd|delivery|shipping|retourneren|retourbeleid|returns policy|gratis retour)\b/i],
+  },
+  {
+    type: "Payment information",
+    patterns: [/\b(iDEAL|betaalmethoden|veilig betalen|payment methods?|creditcard|paypal|achteraf betalen)\b/i],
   },
 ];
 
@@ -294,21 +305,6 @@ function journeyPageType(page: PageFacts, homepage: PageFacts): JourneyPageType 
   return "Other";
 }
 
-function inferBusinessModels(pages: PageFacts[], homepage: PageFacts): BusinessModel[] {
-  const text = pages.map((page) => `${page.normalizedUrl} ${page.title} ${page.bodyText.slice(0, 1800)}`).join(" ");
-  const clickText = pages.flatMap((page) => page.clickables.map((item) => item.text)).join(" ");
-  const models: BusinessModel[] = [];
-  if (ADD_TO_CART.test(clickText) || /\/(cart|checkout|winkelmand|afrekenen|products?|collectie)\b/i.test(text)) models.push("Ecommerce");
-  if (BOOKING_ACTION.test(clickText) || /\/(booking|boeken|afspraak|reserveer)\b/i.test(text)) models.push("Appointment or booking");
-  if (/\b(saas|software|platform|cloud|abonnement|subscription)\b/i.test(text) && (SIGNUP_ACTION.test(clickText) || DEMO_ACTION.test(clickText))) models.push("Software or subscription");
-  if (/\b(marktplaats|marketplace|aanbieders|verkopers|providers|boek een professional)\b/i.test(text)) models.push("Marketplace");
-  if (pages.some((page) => page.forms.length > 0) || QUOTE_ACTION.test(clickText) || CONTACT_PATH.test(text)) models.push("Lead generation");
-  if (/\b(advocaat|accountant|consultancy|adviesbureau|makelaar|architect|agency|bureau)\b/i.test(text)) models.push("Professional services");
-  if (/\b(werkgebied|installatie|onderhoud|reparatie|service aan huis|lokale specialist)\b/i.test(text)) models.push("Local service business");
-  if (!models.length) models.push("Informational or non-commercial");
-  return Array.from(new Set(models));
-}
-
 function conversionTypeFor(page: PageFacts, type: JourneyPageType): ConversionType {
   const clickText = page.clickables.map((item) => item.text).join(" ");
   if (type === "Checkout") return "Checkout";
@@ -369,8 +365,8 @@ function shortestJourneyRoute(homepage: PageFacts, targets: Set<string>, edges: 
   return null;
 }
 
-function buildJourneyAnalysis(pages: PageFacts[], homepage: PageFacts, primaryService: string): JourneyAnalysis {
-  const businessModels = inferBusinessModels(pages, homepage);
+function buildJourneyAnalysis(pages: PageFacts[], homepage: PageFacts, primaryService: string, commercialModel: CommercialModel): JourneyAnalysis {
+  const businessModels = publicBusinessModels(commercialModel, pages.map((page) => page.bodyText).join(" "));
   const typedPages = pages.map((page) => ({ page, type: journeyPageType(page, homepage), conversion: conversionTypeFor(page, journeyPageType(page, homepage)) }));
   const priority: ConversionType[] = businessModels.includes("Ecommerce")
     ? ["Checkout", "Add to cart", "Quote request", "Lead form", "Contact"]
@@ -386,7 +382,8 @@ function buildJourneyAnalysis(pages: PageFacts[], homepage: PageFacts, primarySe
   }
   const targets = new Set(targetPages.map((item) => item.page.normalizedUrl));
   const edges = journeyEdges(pages, homepage);
-  const route = targets.size ? shortestJourneyRoute(homepage, targets, edges) : null;
+  const discoveredRoute = targets.size ? shortestJourneyRoute(homepage, targets, edges) : null;
+  const route = discoveredRoute && (discoveredRoute.length > 1 || homepage.forms.length > 0) ? discoveredRoute : null;
   const pageMap = new Map(pages.map((page) => [page.normalizedUrl, page]));
   const destination = route ? pageMap.get(route[route.length - 1]) || null : null;
   const stages: JourneyStage[] = (route || [homepage.normalizedUrl]).map((url, index, all) => {
@@ -449,9 +446,44 @@ function category(
   return { id, label, score, weight: CATEGORY_WEIGHTS[id], confidence, explanation, evidence };
 }
 
-function ctaCategory(homepage: PageFacts, pages: PageFacts[]) {
-  const relevant = homepage.clickables.filter((item) => CLEAR_CTA.test(item.text) || GENERIC_CTA.test(item.text));
-  const clear = relevant.filter((item) => CLEAR_CTA.test(item.text));
+function offerCategory(homepage: PageFacts, pages: PageFacts[], primaryService: string) {
+  const h1 = homepage.h1.trim();
+  const title = homepage.title.trim();
+  const description = homepage.description.trim();
+  const generic = /^(home(page)?|welkom|welcome|dille\s*&\s*kamille)$/i;
+  const offerTokens = meaningfulTokens(`${h1} ${primaryService}`).slice(0, 6);
+  const sources = [title, h1, description].filter(Boolean);
+  const repeatedSources = sources.filter((source) => offerTokens.some((token) => source.toLowerCase().includes(token))).length;
+
+  let score = 10;
+  if (h1.length >= 12 && h1.length <= 120 && !generic.test(h1)) score += 35;
+  if (title.length >= 8 && !generic.test(title)) score += 20;
+  if (description.length >= 45) score += 20;
+  if (repeatedSources >= 2) score += 15;
+  score = Math.min(100, score);
+
+  const explanation = score >= 80
+    ? "The landing page states the offer clearly and repeats it in key page copy."
+    : score >= 60
+      ? "The main offer is present, but visitors may need supporting copy to understand it immediately."
+      : "The landing page does not make the primary offer immediately clear from its main heading and metadata.";
+  const statement = `Offer clarity scored ${score}/100 from the page title, primary heading and description. ${h1 ? `Detected heading: “${h1}”.` : "No readable H1 heading was detected."}`;
+
+  return category(
+    "offer-clarity",
+    "Offer Clarity",
+    score,
+    confidenceFor(pages.length, sources.length),
+    explanation,
+    [{ statement, pageLabel: "Homepage", url: homepage.url }],
+  );
+}
+
+function ctaCategory(homepage: PageFacts, pages: PageFacts[], commercialModel: CommercialModel) {
+  const ecommerceCta = /\b(shop( nu)?|bekijk (de )?collectie|producten bekijken|bestel( nu)?|naar de winkel|ontdek de collectie)\b/i;
+  const clearPattern = commercialModel === "ecommerce" || commercialModel === "marketplace" ? new RegExp(`${CLEAR_CTA.source}|${ecommerceCta.source}`, "i") : CLEAR_CTA;
+  const relevant = homepage.clickables.filter((item) => clearPattern.test(item.text) || GENERIC_CTA.test(item.text));
+  const clear = relevant.filter((item) => clearPattern.test(item.text));
   const generic = relevant.filter((item) => GENERIC_CTA.test(item.text));
   const score = clear.length >= 2 ? 92 : clear.length === 1 ? 72 : generic.length ? 35 : 12;
   const statement = clear.length
@@ -461,7 +493,7 @@ function ctaCategory(homepage: PageFacts, pages: PageFacts[]) {
       : "No quote, booking, consultation or call CTA was detected in homepage links or buttons.";
   return category(
     "cta-clarity",
-    "CTA clarity",
+    "CTA Clarity",
     score,
     confidenceFor(pages.length, clear.length + generic.length),
     clear.length ? "Clear buying actions are present on the homepage." : "The homepage does not present a specific buying action.",
@@ -469,7 +501,37 @@ function ctaCategory(homepage: PageFacts, pages: PageFacts[]) {
   );
 }
 
-function serviceCategory(homepage: PageFacts, pages: PageFacts[], servicePages: PageFacts[], internalLinkCount: number) {
+function serviceCategory(homepage: PageFacts, pages: PageFacts[], servicePages: PageFacts[], internalLinkCount: number, commercialModel: CommercialModel) {
+  if (commercialModel === "ecommerce" || commercialModel === "marketplace") {
+    const categoryPages = pages.filter((page) => journeyPageType(page, homepage) === "Category");
+    const productPages = pages.filter((page) => journeyPageType(page, homepage) === "Product");
+    const score = categoryPages.length && productPages.length ? 95 : productPages.length ? 72 : categoryPages.length ? 58 : 20;
+    const evidencePage = productPages[0] || categoryPages[0] || homepage;
+    const statement = categoryPages.length && productPages.length
+      ? "A representative category and product-detail step were both detected in the customer journey."
+      : productPages.length
+        ? "A product-detail step was detected, but no representative category step was confirmed."
+        : categoryPages.length
+          ? "A category step was detected, but no representative product-detail step was confirmed."
+          : "No representative category or product-detail step was confirmed from the landing page.";
+    return category(
+      "service-page-coverage",
+      "Product-journey coverage",
+      score,
+      confidenceFor(pages.length, categoryPages.length + productPages.length || 1),
+      statement,
+      [{ statement, pageLabel: pageLabel(evidencePage, homepage), url: evidencePage.url }],
+    );
+  }
+
+  if (commercialModel === "software") {
+    const pricingPage = pages.find((page) => journeyPageType(page, homepage) === "Pricing");
+    const score = pricingPage ? 90 : servicePages.length ? 65 : 25;
+    const evidencePage = pricingPage || servicePages[0] || homepage;
+    const statement = pricingPage ? "A representative pricing step was detected before signup or demo conversion." : "No representative pricing step was confirmed in the public conversion journey.";
+    return category("service-page-coverage", "Offer and pricing coverage", score, confidenceFor(pages.length, pricingPage ? 2 : 1), statement, [{ statement, pageLabel: pageLabel(evidencePage, homepage), url: evidencePage.url }]);
+  }
+
   const score = servicePages.length >= 3 ? 95 : servicePages.length === 2 ? 82 : servicePages.length === 1 ? 58 : 20;
   const statement = servicePages.length
     ? `${servicePages.length} dedicated service page${servicePages.length === 1 ? " was" : "s were"} detected across ${pages.length} crawled pages.`
@@ -509,8 +571,8 @@ function conversionCategory(homepage: PageFacts, pages: PageFacts[], path: strin
   }
 
   return category(
-    "conversion-path-quality",
-    "Conversion-path quality",
+    "customer-journey-path",
+    "Customer Journey Path",
     score,
     confidenceFor(pages.length, path?.length || 1),
     broken ? "A visible conversion destination returned an error." : steps === null ? "No complete conversion route was visible in the bounded crawl." : `The shortest visible conversion route takes ${steps} click${steps === 1 ? "" : "s"}.`,
@@ -604,39 +666,42 @@ function trustCategory(homepage: PageFacts, pages: PageFacts[], servicePages: Pa
   );
 }
 
-function gapFromCategory(item: ReadinessCategory, homepage: PageFacts): Omit<Gap, "rank"> | null {
-  if (item.score === null) return null;
-  const impact = 100 - item.score;
-  const content: Record<ReadinessCategory["id"], { id: GapId; title: string; summary: string; action: string }> = {
-    "cta-clarity": {
-      id: "cta", title: "Primary CTA may be unclear", summary: "The homepage does not make the next commercial step specific enough.", action: "Use one specific quote, booking or consultation CTA.",
-    },
-    "service-page-coverage": {
-      id: "service-page", title: "Service coverage appears limited", summary: "Important services may not have enough dedicated commercial content.", action: "Create a focused page for the highest-value uncovered service.",
-    },
-    "conversion-path-quality": {
-      id: "conversion-path", title: "Conversion path may lose visitors", summary: "The shortest visible path to contact contains avoidable friction.", action: "Link the primary CTA to the closest working conversion action.",
-    },
-    "form-friction": {
-      id: "form-friction", title: "Enquiry form may feel demanding", summary: "The detected form asks for more information than a first enquiry may need.", action: "Keep only the fields needed to start the conversation.",
-    },
-    "message-consistency": {
-      id: "message-consistency", title: "Core message may drift", summary: "Key pages do not consistently repeat the main service language.", action: "Align titles and headings around one primary service promise.",
-    },
-    "trust-signals": {
-      id: "trust-signals", title: "Conversion page lacks visible proof", summary: "The main conversion page shows little or no visible trust evidence.", action: "Place relevant proof beside the primary CTA or form.",
-    },
-  };
-  const copy = content[item.id];
-  return {
-    id: copy.id,
-    title: copy.title,
-    summary: copy.summary,
-    severity: severityFor(impact),
-    score: impact,
+function requiredFinding(item: ReadinessCategory, homepage: PageFacts, rank: number, clicks: number | null): Gap {
+  const score = item.score ?? 0;
+  const shared = {
+    rank,
+    severity: severityFor(100 - score),
+    score,
     confidence: item.confidence,
     evidence: item.evidence.length ? item.evidence : [{ statement: item.explanation, pageLabel: "Crawl evidence", url: homepage.url }],
-    nextAction: copy.action,
+  };
+
+  if (item.id === "offer-clarity") {
+    return {
+      ...shared,
+      id: "offer-clarity",
+      title: "Offer Clarity",
+      summary: item.explanation,
+      nextAction: score >= 80 ? "Keep the primary offer consistent across the journey." : "State the product or service and customer outcome in the main heading.",
+    };
+  }
+
+  if (item.id === "cta-clarity") {
+    return {
+      ...shared,
+      id: "cta-clarity",
+      title: "CTA Clarity",
+      summary: item.explanation,
+      nextAction: score >= 80 ? "Keep one primary CTA label consistent on every journey page." : "Use one obvious, specific conversion CTA on the landing page.",
+    };
+  }
+
+  return {
+    ...shared,
+    id: "customer-journey-path",
+    title: "Customer Journey Path",
+    summary: clicks === null ? "A complete public route to conversion could not be confirmed." : `The shortest evidenced route reaches conversion in ${clicks} click${clicks === 1 ? "" : "s"}.`,
+    nextAction: clicks === null ? "Expose a direct route to the primary conversion." : clicks <= 2 ? "Keep the shortest conversion route prominent." : "Remove intermediate steps from the primary conversion route.",
   };
 }
 
@@ -667,35 +732,25 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
   const internalLinks = new Set(pages.flatMap((page) => page.normalizedLinks));
   const primaryService = inferPrimaryService(homepage, servicePages);
   const market = inferMarket(pages);
-  const journey = buildJourneyAnalysis(pages, homepage, primaryService);
+  const commercialModel = classifyCommercialModel(pages);
+  const journey = buildJourneyAnalysis(pages, homepage, primaryService, commercialModel);
   const fallbackPath = shortestConversionPath(pages, homepage);
-  const path = journey.primary.shortestRoute.length ? journey.primary.shortestRoute : fallbackPath;
+  const detectedPath = journey.primary.shortestRoute.length ? journey.primary.shortestRoute : fallbackPath;
+  const path = detectedPath && (detectedPath.length > 1 || homepage.forms.length > 0) ? detectedPath : null;
   const destination = path ? pages.find((page) => page.normalizedUrl === path[path.length - 1]) || null : null;
 
   const categories = [
-    ctaCategory(homepage, pages),
-    serviceCategory(homepage, pages, servicePages, internalLinks.size),
+    offerCategory(homepage, pages, primaryService),
+    ctaCategory(homepage, pages, commercialModel),
     conversionCategory(homepage, pages, path),
-    formCategory(homepage, pages, destination),
-    messageCategory(homepage, pages, servicePages, primaryService),
-    trustCategory(homepage, pages, servicePages, destination),
   ];
-  const assessed = categories.filter((item) => item.score !== null);
-  const assessedWeight = assessed.reduce((sum, item) => sum + item.weight, 0);
-  const minimumWeight = 80;
+  const assessedWeight = categories.reduce((sum, item) => sum + item.weight, 0);
+  const minimumWeight = 100;
   const readablePages = pages.filter((page) => page.bodyText.length >= 80).length;
-  const hasCoreCategories = categories.slice(0, 3).every((item) => item.score !== null);
-  const canScore = readablePages >= 2 && assessedWeight >= minimumWeight && hasCoreCategories;
-  const score = canScore
-    ? Math.round(assessed.reduce((sum, item) => sum + (item.score || 0) * item.weight, 0) / assessedWeight)
-    : null;
-  const reportConfidence = confidenceFor(readablePages, assessed.length);
-
-  const candidates = categories
-    .map((item) => gapFromCategory(item, homepage))
-    .filter((item): item is Omit<Gap, "rank"> => item !== null)
-    .sort((a, b) => b.score - a.score);
-  const gaps: Gap[] = candidates.slice(0, 3).map((gap, index) => ({ ...gap, rank: index + 1 }));
+  const score = Math.round(categories.reduce((sum, item) => sum + (item.score ?? 0) * item.weight, 0) / assessedWeight);
+  const reportConfidence = confidenceFor(readablePages, categories.length);
+  const clicks = path ? Math.max(0, path.length - 1) : null;
+  const gaps: Gap[] = categories.map((item, index) => requiredFinding(item, homepage, index + 1, clicks));
   const companyName = inferCompanyName(homepage);
   const searchQuery = `${primaryService} ${market.geography} ${market.targetCustomer}`.replace(/\s+/g, " ").trim();
 
@@ -708,7 +763,7 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
     score,
     scoreLabel: scoreLabel(score),
     readiness: {
-      status: score === null ? "insufficient-data" : "scored",
+      status: "scored",
       score,
       assessedWeight,
       minimumWeight,
@@ -717,7 +772,15 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
     },
     confidence: reportConfidence,
     analyzedAt: new Date().toISOString(),
-    summary: score === null ? "More readable pages are needed for a fair readiness score." : `Start with this: ${gaps[0]?.title.toLowerCase() || "review the available evidence"}.`,
+    summary: `Representative journey score: ${score}/100 across offer clarity, CTA clarity and customer journey path.`,
+    overview: {
+      score,
+      status: score >= 80 ? "Strong" : score >= 60 ? "Mixed" : "Needs attention",
+      explanation: score >= 80 ? "The representative journey is clear and direct." : score >= 60 ? "The journey is usable, with specific opportunities to improve." : "The representative journey contains visible acquisition friction.",
+      businessModel: journey.businessModels[0],
+      primaryConversion: journey.primaryConversionType,
+      estimatedClicks: clicks,
+    },
     gaps,
     stats: {
       pagesCrawled: pages.length,
@@ -727,7 +790,7 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
       formFields: pages.reduce((total, page) => total + page.forms.reduce((sum, form) => sum + form.fieldCount, 0), 0),
       servicePages: servicePages.length,
       trustSignals: new Set(pages.flatMap((page) => page.trustSignals)).size,
-      conversionPathSteps: path ? Math.max(0, path.length - 1) : null,
+      conversionPathSteps: clicks,
       processingMs,
     },
     market,
