@@ -106,13 +106,15 @@ async function crawlWebsiteFallback(url: string, apiKey: string, maxWaitMs = 9_0
     headers: headers(apiKey),
     body: JSON.stringify({
       url,
+      prompt: "Crawl one representative customer journey on this domain. Include the homepage, a category or service listing, a product or service detail page, the primary conversion page, and useful pricing, returns or trust pages. Avoid blogs, legal pages and repeated similar products.",
       limit,
       maxDiscoveryDepth: 2,
-      crawlEntireDomain: false,
+      crawlEntireDomain: true,
       allowExternalLinks: false,
       allowSubdomains: false,
-      sitemap: "skip",
+      sitemap: "include",
       ignoreQueryParameters: true,
+      excludePaths: ["blog/.*", "nieuws/.*", "news/.*", "privacy.*", "voorwaarden.*", "terms.*", "account/.*", "login.*"],
       scrapeOptions: {
         formats: ["markdown", "html", "links"],
         onlyMainContent: false,
@@ -382,19 +384,39 @@ export function selectRepresentativeResults(pages: CrawlPage[], baseUrl: string,
   });
   if (!unique.length) return [];
   const homepage = [...unique].sort((a, b) => new URL(a.url).pathname.length - new URL(b.url).pathname.length)[0];
-  const model = classifyCommercialModel(unique);
   const selected = [homepage];
   const used = new Set([canonicalSiteUrl(homepage.url, homepage.url)!]);
-  for (const role of representativePlan(model)) {
-    const candidate = unique.find((page) => !used.has(canonicalSiteUrl(page.url, homepage.url)!) && representativeKind({
+  const counts = new Map<JourneyRole, number>([["homepage", 1]]);
+  const roleLimits: Record<JourneyRole, number> = { homepage: 1, category: 2, product: 2, service: 2, conversion: 1, pricing: 1, cart: 1, checkout: 1, other: 2 };
+  const rolePriority: Record<JourneyRole, number> = { category: 90, service: 90, product: 85, conversion: 80, pricing: 75, cart: 70, checkout: 70, other: 20, homepage: 0 };
+  const candidates = unique
+    .filter((page) => canonicalSiteUrl(page.url, homepage.url) !== canonicalSiteUrl(homepage.url, homepage.url))
+    .map((page) => {
+      const role = representativeKind({
       url: page.url,
       title: page.title,
       description: `${page.description} ${page.markdown.slice(0, 900)} ${page.html.slice(0, 1400)}`,
-    }, homepage.url) === role);
-    if (!candidate) continue;
-    selected.push(candidate);
-    used.add(canonicalSiteUrl(candidate.url, homepage.url)!);
+      }, homepage.url);
+      const contentLength = `${page.markdown} ${page.html}`.replace(/\s+/g, " ").trim().length;
+      return { page, role, score: rolePriority[role] + Math.min(20, Math.floor(contentLength / 400)) };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  for (const candidate of candidates) {
+    const key = canonicalSiteUrl(candidate.page.url, homepage.url)!;
+    if (used.has(key) || (counts.get(candidate.role) || 0) >= roleLimits[candidate.role]) continue;
+    selected.push(candidate.page);
+    used.add(key);
+    counts.set(candidate.role, (counts.get(candidate.role) || 0) + 1);
     if (selected.length >= limit) break;
+  }
+
+  for (const candidate of candidates) {
+    if (selected.length >= Math.min(limit, 3)) break;
+    const key = canonicalSiteUrl(candidate.page.url, homepage.url)!;
+    if (used.has(key)) continue;
+    selected.push(candidate.page);
+    used.add(key);
   }
   return selected.slice(0, limit);
 }
@@ -461,45 +483,8 @@ async function crawlRepresentativePages(
 export async function crawlWebsite(url: string, apiKey: string, options: CrawlOptions = {}): Promise<CrawlPage[]> {
   const rootUrl = new URL(normalizeAndValidateUrl(url)).origin;
   const limit = Math.min(8, Math.max(1, options.limit ?? 8));
-  const allowFallback = options.allowFallback ?? true;
-  const homepageTimeout = options.homepageTimeout ?? 6_000;
-  const mapTimeout = options.mapTimeout ?? 5_000;
-  const pageTimeout = options.pageTimeout ?? 5_500;
-  const followLinkedJourney = options.followLinkedJourney ?? true;
-  let homepage: CrawlPage;
-
-  try {
-    homepage = await scrapePage(rootUrl, apiKey, homepageTimeout);
-  } catch (homepageError) {
-    if (!allowFallback) throw homepageError;
-    const fallback = await crawlWebsiteFallback(rootUrl, apiKey, options.fallbackWait ?? 9_000, limit);
-    return selectRepresentativeResults(fallback, rootUrl, limit);
-  }
-
-  try {
-    const mapResponse = await fetch(`${FIRECRAWL_BASE_URL}/map`, {
-      method: "POST",
-      headers: headers(apiKey),
-      body: JSON.stringify({
-        url: rootUrl,
-        sitemap: "include",
-        includeSubdomains: false,
-        ignoreQueryParameters: true,
-        limit: 200,
-        location: { country: "NL", languages: ["nl-NL", "en-US"] },
-        timeout: mapTimeout,
-      }),
-      signal: AbortSignal.timeout(mapTimeout + 1_000),
-    });
-    if (!mapResponse.ok) return await crawlRepresentativePages(homepage, [], classifyCommercialModel([homepage]), apiKey, limit, pageTimeout, followLinkedJourney);
-    const mapped = (await mapResponse.json()) as FirecrawlMapResponse;
-    if (!mapped.success) return await crawlRepresentativePages(homepage, [], classifyCommercialModel([homepage]), apiKey, limit, pageTimeout, followLinkedJourney);
-    const model = classifyCommercialModel([homepage]);
-    const pages = await crawlRepresentativePages(homepage, mapped.links || [], model, apiKey, limit, pageTimeout, followLinkedJourney);
-    return pages;
-  } catch {
-    return await crawlRepresentativePages(homepage, [], classifyCommercialModel([homepage]), apiKey, limit, pageTimeout, followLinkedJourney);
-  }
+  const pages = await crawlWebsiteFallback(rootUrl, apiKey, options.fallbackWait ?? 16_000, limit);
+  return selectRepresentativeResults(pages, pages[0]?.url || rootUrl, limit);
 }
 
 /**
@@ -576,11 +561,13 @@ export async function discoverCompetitorPages(
     }
     seenOrigins.add(origin);
     const score = competitorCandidateScore(entity, candidate);
-    if (score < 5) {
+    const retailSearchFallback = entity.businessModel === "retail-ecommerce"
+      && /\b(webshop|winkel|shop|producten|assortiment|warenhuis|online bestellen)\b/i.test(`${candidate.title || ""} ${candidate.description || ""}`);
+    if (score < 5 && !retailSearchFallback) {
       rejected.push({ name, url: candidate.url, reason: "Insufficient industry, offer, geography or target-customer match.", crawled: false });
       continue;
     }
-    ranked.push({ candidate, score });
+    ranked.push({ candidate, score: Math.max(score, retailSearchFallback ? 4 : score) });
   }
 
   ranked.sort((a, b) => b.score - a.score);
@@ -594,10 +581,7 @@ export async function discoverCompetitorPages(
     const pages = await crawlWebsite(origin, apiKey, {
       limit: 8,
       allowFallback: false,
-      homepageTimeout: 3_500,
-      mapTimeout: 3_500,
-      pageTimeout: 3_000,
-      followLinkedJourney: true,
+      fallbackWait: 8_500,
     });
     return { seedUrl: candidate.url, pages };
   }));
