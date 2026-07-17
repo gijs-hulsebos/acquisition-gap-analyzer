@@ -13,7 +13,7 @@ import type {
 } from "./types";
 import { classifyCommercialModel, publicBusinessModels } from "./journey-model";
 import type { CommercialModel } from "./journey-model";
-import { normalizePageUrl } from "./url";
+import { canonicalSiteUrl, normalizePageUrl } from "./url";
 
 type Clickable = { text: string; href: string | null; element: "link" | "button" };
 type FormFacts = { fieldCount: number; requiredCount: number; isConversion: boolean };
@@ -96,17 +96,17 @@ function extractForms(html: string): FormFacts[] {
 }
 
 function buildFacts(pages: CrawlPage[], analyzedUrl: string): PageFacts[] {
-  const origin = new URL(analyzedUrl).origin;
   return pages.flatMap((page) => {
     const normalizedUrl = normalizePageUrl(page.url, analyzedUrl);
-    if (!normalizedUrl || new URL(normalizedUrl).origin !== origin) return [];
+    if (!normalizedUrl || !canonicalSiteUrl(normalizedUrl, analyzedUrl)) return [];
     const clickables = uniqueClickables([...extractClickables(page.html), ...extractMarkdownClickables(page.markdown)]);
     const normalizedLinks = Array.from(new Set([...page.links, ...clickables.flatMap((item) => item.href ? [item.href] : [])]
       .map((link) => normalizePageUrl(link, page.url))
-      .filter((link): link is string => Boolean(link) && new URL(link!).origin === origin)));
+      .map((link) => link ? canonicalSiteUrl(link, analyzedUrl) : null)
+      .filter((link): link is string => Boolean(link))));
     return [{
       ...page,
-      normalizedUrl,
+      normalizedUrl: canonicalSiteUrl(normalizedUrl, analyzedUrl)!,
       clickables,
       forms: extractForms(page.html),
       normalizedLinks,
@@ -128,6 +128,7 @@ function pageType(page: PageFacts, homepage: PageFacts): JourneyPageType {
   if (/\/(checkout|afrekenen|kassa|payment|betalen)(\/|$)/i.test(path)) return "Checkout";
   if (/\/(cart|basket|bag|winkelmand|mandje)(\/|$)/i.test(path)) return "Cart";
   if (/\/(search|zoeken?|zoekresultaten?)(\/|$)/i.test(path)) return "Category";
+  if (!ADD_TO_CART.test(page.bodyText) && (priceCount(page) >= 2 || productStructureCount(page) >= 2)) return "Category";
   if (/\/(collections?|collecties?|categories?|categorie|catalogus|shop|winkel|assortiment)(\/|$)/i.test(path)) return "Category";
   if (/\/(products?|product|p|artikel|item)\//i.test(path) || ADD_TO_CART.test(page.bodyText)) return "Product";
   if (/\/(pricing|prijzen|tarieven|abonnementen)(\/|$)/i.test(path)) return "Pricing";
@@ -137,7 +138,7 @@ function pageType(page: PageFacts, homepage: PageFacts): JourneyPageType {
 }
 
 function linkedAction(from: PageFacts, to: PageFacts) {
-  return from.clickables.find((item) => item.href && normalizePageUrl(item.href, from.url) === to.normalizedUrl) || null;
+  return from.clickables.find((item) => item.href && canonicalSiteUrl(item.href, from.url) === canonicalSiteUrl(to.normalizedUrl, from.url)) || null;
 }
 
 function hasSearchControl(page: PageFacts) {

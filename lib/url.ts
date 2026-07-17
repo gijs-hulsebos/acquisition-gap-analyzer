@@ -68,3 +68,33 @@ export function normalizePageUrl(raw: string, base: string): string | null {
     return null;
   }
 }
+
+export function siteHostname(raw: string, base?: string): string | null {
+  try {
+    return new URL(raw, base).hostname.toLowerCase().replace(/^www\./, "").replace(/\.$/, "");
+  } catch {
+    return null;
+  }
+}
+
+export function isSameSite(raw: string, base: string): boolean {
+  const rawHost = siteHostname(raw, base);
+  const baseHost = siteHostname(base);
+  return Boolean(rawHost && baseHost && rawHost === baseHost);
+}
+
+export function canonicalSiteUrl(raw: string, base: string): string | null {
+  try {
+    const parsed = new URL(raw, base);
+    const canonicalBase = new URL(base);
+    if (!isSameSite(parsed.toString(), canonicalBase.toString())) return null;
+    parsed.protocol = canonicalBase.protocol;
+    parsed.host = canonicalBase.host;
+    parsed.hash = "";
+    parsed.search = "";
+    parsed.pathname = parsed.pathname.replace(/\/$/, "") || "/";
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}

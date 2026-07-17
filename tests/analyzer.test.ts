@@ -203,7 +203,7 @@ describe("entity-first competitor discovery", () => {
       if (requestUrl.endsWith("/scrape")) {
         if (String(init?.body || "").includes("onbereikbare-woonwinkel.nl")) throw new Error("Crawl unavailable");
         return new Response(JSON.stringify({ success: true, data: {
-          markdown: "Woonaccessoires, servies en cadeaus. Bekijk ons assortiment. Product € 12,95. Product € 18,95.",
+          markdown: "Woonaccessoires, servies en cadeaus. Bekijk ons assortiment. Product € 12,95. Product € 18,95. Zakelijk bestellen kan via de klantenservice.",
           html: '<h1>Woonaccessoires, servies en cadeaus</h1><a href="/collectie">Bekijk assortiment</a><div class="product-card">€ 12,95</div><div class="product-card">€ 18,95</div>',
           links: ["https://andere-woonwinkel.nl/collectie"],
           metadata: { sourceURL: "https://andere-woonwinkel.nl/", title: "Andere Woonwinkel", description: "Nederlandse webshop voor wonen en cadeaus.", statusCode: 200 },
@@ -226,7 +226,8 @@ describe("entity-first competitor discovery", () => {
     ]));
     expect(discovery.rejected.some((item) => item.url === "https://onbereikbare-woonwinkel.nl/" && item.crawled)).toBe(true);
     const scrapedBodies = fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/scrape")).map(([, init]) => String(init?.body));
-    expect(scrapedBodies).toHaveLength(2);
+    expect(scrapedBodies).toHaveLength(3);
+    expect(scrapedBodies.filter((body) => body.includes("andere-woonwinkel.nl"))).toHaveLength(2);
     expect(scrapedBodies.some((body) => body.includes("andere-woonwinkel.nl"))).toBe(true);
     expect(scrapedBodies.some((body) => body.includes("onbereikbare-woonwinkel.nl"))).toBe(true);
     expect(scrapedBodies.join(" ")).not.toContain("dille-kamille.be");
@@ -353,6 +354,48 @@ describe("representative customer journeys", () => {
     const result = analyzeCrawl(crawled, "https://woonwinkel.nl/", 200);
     expect(result.journey.primary.status).toBe("complete");
     expect(result.journey.primary.clicksToInterface).toBe(3);
+  });
+
+  it("follows canonical www storefront links when Firecrawl Map is unavailable", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const requestUrl = String(input);
+      const body = JSON.parse(String(init?.body || "{}")) as { url?: string };
+      if (requestUrl.endsWith("/map")) {
+        return new Response(JSON.stringify({ success: false, error: "Map unavailable" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (requestUrl.endsWith("/scrape") && body.url === "https://dille-kamille.nl") {
+        return new Response(JSON.stringify({ success: true, data: {
+          html: '<input type="search" placeholder="Waar ben je naar op zoek?">',
+          markdown: "# Dille & Kamille\n[Alle categorieën](https://www.dille-kamille.nl/nl/keuken)\n[Buitenkaars](https://www.dille-kamille.nl/nl/tuin/buitenkaars) 16,95\n[Dienblad](https://www.dille-kamille.nl/nl/keuken/dienblad) 16,95",
+          links: ["https://www.dille-kamille.nl/nl/keuken", "https://www.dille-kamille.nl/nl/tuin/buitenkaars"],
+          metadata: { sourceURL: "https://www.dille-kamille.nl/", title: "Dille & Kamille", description: "Producten voor huis en tuin", statusCode: 200 },
+        } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (requestUrl.endsWith("/scrape") && body.url === "https://www.dille-kamille.nl/nl/keuken") {
+        return new Response(JSON.stringify({ success: true, data: {
+          html: "", markdown: "# Keuken\nBekijk ons brede assortiment pannen, servies en keukenproducten voor dagelijks koken, bakken en tafelen.\n[Pan](https://www.dille-kamille.nl/nl/keuken/pan) 29,95\n[Servies](https://www.dille-kamille.nl/nl/keuken/servies) 12,95", links: ["https://www.dille-kamille.nl/nl/keuken/pan"],
+          metadata: { sourceURL: body.url, title: "Keuken", statusCode: 200 },
+        } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (requestUrl.endsWith("/scrape") && body.url === "https://www.dille-kamille.nl/nl/keuken/pan") {
+        return new Response(JSON.stringify({ success: true, data: {
+          html: "", markdown: "# Pan\nGietijzeren pan voor dagelijks koken, bakken en serveren. Bekijk de productdetails, prijs en beschikbaarheid voordat je bestelt. 29,95\n[In winkelmand](/cart)", links: ["https://www.dille-kamille.nl/cart"],
+          metadata: { sourceURL: body.url, title: "Pan", statusCode: 200 },
+        } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      throw new Error(`Unexpected request: ${requestUrl} ${body.url || ""}`);
+    });
+
+    const crawled = await crawlWebsite("https://dille-kamille.nl", "test-key", { homepageTimeout: 100, mapTimeout: 100, pageTimeout: 100 });
+    expect(crawled.map((item) => item.url)).toEqual([
+      "https://www.dille-kamille.nl/",
+      "https://www.dille-kamille.nl/nl/keuken",
+      "https://www.dille-kamille.nl/nl/keuken/pan",
+    ]);
+    const result = analyzeCrawl(crawled, "https://dille-kamille.nl/", 200);
+    expect(result.score).not.toBeNull();
+    expect(result.journey.primary.status).toBe("complete");
+    expect(result.journey.primary.clicksToInterface).toBe(4);
   });
 
   it("never starts an ecommerce journey at cart or checkout", () => {

@@ -3,7 +3,7 @@ import { buildCompetitorSearchQuery, competitorCandidateScore } from "./entity";
 import type { ResolvedCompanyEntity } from "./types";
 import { classifyCommercialModel } from "./journey-model";
 import type { CommercialModel, JourneyRole } from "./journey-model";
-import { normalizeAndValidateUrl } from "./url";
+import { canonicalSiteUrl, isSameSite, normalizeAndValidateUrl } from "./url";
 
 type FirecrawlDocument = {
   markdown?: string;
@@ -222,6 +222,8 @@ function representativeKind(link: FirecrawlMapLink, baseUrl: string): JourneyRol
   if (/\/(checkout|afrekenen|kassa|payment|betalen)(\/|$)/i.test(path)) return "checkout";
   if (/\/(cart|basket|bag|winkelmand|mandje)(\/|$)/i.test(path)) return "cart";
   if (/\/(booking|boeken|afspraak|demo|aanvraag|application|apply|signup|register|trial)(\/|$)/i.test(path)) return "conversion";
+  const priceSignals = text.match(/(?:â‚¬|€|eur\s*)\s*\d{1,5}(?:[.,]\d{2})?|\b\d{1,4}[,.]\d{2}\b/gi) || [];
+  if (priceSignals.length >= 2 && !/\b(in winkelmand|add to cart|toevoegen aan (?:winkelmand|mandje))\b/i.test(text)) return "category";
   if (/\/(collections?|collecties?|categories?|categorie|catalogus|shop|winkel|assortiment|search|zoeken?|zoekresultaten?)(\/|$)/i.test(path) || /\b(collectie|categorie|assortiment|shop all|bekijk alles|zoekresultaten)\b/i.test(text)) return "category";
   if (/\/(products?|product|p|artikel|item)(\/|$)/i.test(path) || /\b(product detail|artikelnummer|in winkelmand|add to cart|sku)\b/i.test(text) || (PRICE_SIGNAL.test(text) && path.split("/").filter(Boolean).length >= 2)) return "product";
   if (/\/(diensten?|services?|oplossingen?|solutions?)(\/|$)/i.test(path)) return "service";
@@ -248,21 +250,43 @@ function representativeScore(link: FirecrawlMapLink, kind: JourneyRole) {
 }
 
 function normalizedInternalLinks(page: CrawlPage, baseUrl: string) {
-  const origin = new URL(baseUrl).origin;
   const htmlLinks = Array.from(page.html.matchAll(/href\s*=\s*["']([^"']+)["']/gi)).map((match) => match[1]);
   const markdownLinks = Array.from(page.markdown.matchAll(/\[[^\]]+\]\(([^\s)]+)/g)).map((match) => match[1]);
   return new Set([...page.links, ...htmlLinks, ...markdownLinks].flatMap((raw) => {
+    let resolved: string;
     try {
-      const parsed = new URL(raw, page.url);
-      if (parsed.origin !== origin) return [];
-      parsed.hash = "";
-      parsed.search = "";
-      parsed.pathname = parsed.pathname.replace(/\/$/, "") || "/";
-      return [parsed.toString()];
+      resolved = new URL(raw, page.url).toString();
     } catch {
       return [];
     }
+    const normalized = canonicalSiteUrl(resolved, baseUrl);
+    return normalized ? [normalized] : [];
   }));
+}
+
+function linkedPageCandidates(page: CrawlPage, baseUrl: string): FirecrawlMapLink[] {
+  const candidates: FirecrawlMapLink[] = [];
+  for (const match of page.html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    candidates.push({ url: match[1], title: match[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() });
+  }
+  for (const match of page.markdown.matchAll(/\[([^\]]+)\]\(([^\s)]+)[^)]*\)([^\n]{0,80})/g)) {
+    candidates.push({ url: match[2], title: match[1].replace(/[*_`]/g, "").trim(), description: match[3].trim() });
+  }
+  candidates.push(...page.links.map((url) => ({ url })));
+  const seen = new Set<string>();
+  return candidates.flatMap((candidate) => {
+    if (!candidate.url || STATIC_ASSET.test(candidate.url)) return [];
+    let resolved: string;
+    try {
+      resolved = new URL(candidate.url, page.url).toString();
+    } catch {
+      return [];
+    }
+    const normalized = canonicalSiteUrl(resolved, baseUrl);
+    if (!normalized || seen.has(normalized)) return [];
+    seen.add(normalized);
+    return [{ ...candidate, url: normalized }];
+  });
 }
 
 function journeyBuckets(baseUrl: string, links: FirecrawlMapLink[]) {
@@ -270,11 +294,8 @@ function journeyBuckets(baseUrl: string, links: FirecrawlMapLink[]) {
   for (const link of links) {
     if (!link.url || STATIC_ASSET.test(link.url)) continue;
     try {
-      const parsed = new URL(link.url, baseUrl);
-      if (parsed.origin !== new URL(baseUrl).origin) continue;
-      parsed.hash = "";
-      parsed.search = "";
-      parsed.pathname = parsed.pathname.replace(/\/$/, "") || "/";
+      if (!isSameSite(link.url, baseUrl)) continue;
+      const parsed = new URL(canonicalSiteUrl(link.url, baseUrl)!);
       const normalized = { ...link, url: parsed.toString() };
       const role = representativeKind(normalized, baseUrl);
       const bucket = buckets.get(role) || [];
@@ -286,6 +307,20 @@ function journeyBuckets(baseUrl: string, links: FirecrawlMapLink[]) {
   }
   for (const [role, bucket] of buckets) bucket.sort((a, b) => representativeScore(b, role) - representativeScore(a, role));
   return buckets;
+}
+
+function addCandidatesToBuckets(
+  buckets: Map<JourneyRole, Array<FirecrawlMapLink & { url: string }>>,
+  page: CrawlPage,
+  baseUrl: string,
+) {
+  for (const candidate of linkedPageCandidates(page, baseUrl)) {
+    const role = representativeKind(candidate, baseUrl);
+    const bucket = buckets.get(role) || [];
+    if (!bucket.some((item) => item.url === candidate.url)) bucket.push(candidate as FirecrawlMapLink & { url: string });
+    bucket.sort((a, b) => representativeScore(b, role) - representativeScore(a, role));
+    buckets.set(role, bucket);
+  }
 }
 
 function chooseJourneyCandidate(
@@ -334,12 +369,11 @@ function representativePlan(model: CommercialModel): JourneyRole[] {
 }
 
 export function selectRepresentativeResults(pages: CrawlPage[], baseUrl: string, limit = 8) {
-  const ownOrigin = new URL(baseUrl).origin;
   const seen = new Set<string>();
   const unique = pages.filter((page) => {
     try {
-      const normalized = normalizeAndValidateUrl(page.url);
-      if (new URL(normalized).origin !== ownOrigin || seen.has(normalized)) return false;
+      const normalized = canonicalSiteUrl(page.url, baseUrl);
+      if (!normalized || seen.has(normalized)) return false;
       seen.add(normalized);
       return true;
     } catch {
@@ -350,16 +384,16 @@ export function selectRepresentativeResults(pages: CrawlPage[], baseUrl: string,
   const homepage = [...unique].sort((a, b) => new URL(a.url).pathname.length - new URL(b.url).pathname.length)[0];
   const model = classifyCommercialModel(unique);
   const selected = [homepage];
-  const used = new Set([normalizeAndValidateUrl(homepage.url)]);
+  const used = new Set([canonicalSiteUrl(homepage.url, homepage.url)!]);
   for (const role of representativePlan(model)) {
-    const candidate = unique.find((page) => !used.has(normalizeAndValidateUrl(page.url)) && representativeKind({
+    const candidate = unique.find((page) => !used.has(canonicalSiteUrl(page.url, homepage.url)!) && representativeKind({
       url: page.url,
       title: page.title,
       description: `${page.description} ${page.markdown.slice(0, 900)} ${page.html.slice(0, 1400)}`,
     }, homepage.url) === role);
     if (!candidate) continue;
     selected.push(candidate);
-    used.add(normalizeAndValidateUrl(candidate.url));
+    used.add(canonicalSiteUrl(candidate.url, homepage.url)!);
     if (selected.length >= limit) break;
   }
   return selected.slice(0, limit);
@@ -375,8 +409,8 @@ async function crawlRepresentativePages(
   followLinkedJourney = true,
 ) {
   const pages = [homepage];
-  const visited = new Set([normalizeAndValidateUrl(homepage.url)]);
-  const buckets = journeyBuckets(homepage.url, mappedLinks);
+  const visited = new Set([canonicalSiteUrl(homepage.url, homepage.url)!]);
+  const buckets = journeyBuckets(homepage.url, [...mappedLinks, ...linkedPageCandidates(homepage, homepage.url)]);
   const roles = representativePlan(model);
 
   if (followLinkedJourney && (model === "ecommerce" || model === "marketplace")) {
@@ -390,6 +424,7 @@ async function crawlRepresentativePages(
         const page = await scrapePage(candidate.url, apiKey, pageTimeout);
         pages.push(page);
         current = page;
+        addCandidatesToBuckets(buckets, page, homepage.url);
       } catch {
         continue;
       }
@@ -429,7 +464,7 @@ export async function crawlWebsite(url: string, apiKey: string, options: CrawlOp
   const allowFallback = options.allowFallback ?? true;
   const homepageTimeout = options.homepageTimeout ?? 6_000;
   const mapTimeout = options.mapTimeout ?? 5_000;
-  const pageTimeout = options.pageTimeout ?? 4_000;
+  const pageTimeout = options.pageTimeout ?? 5_500;
   const followLinkedJourney = options.followLinkedJourney ?? true;
   let homepage: CrawlPage;
 
@@ -456,14 +491,14 @@ export async function crawlWebsite(url: string, apiKey: string, options: CrawlOp
       }),
       signal: AbortSignal.timeout(mapTimeout + 1_000),
     });
-    if (!mapResponse.ok) return [homepage];
+    if (!mapResponse.ok) return await crawlRepresentativePages(homepage, [], classifyCommercialModel([homepage]), apiKey, limit, pageTimeout, followLinkedJourney);
     const mapped = (await mapResponse.json()) as FirecrawlMapResponse;
-    if (!mapped.success) return [homepage];
+    if (!mapped.success) return await crawlRepresentativePages(homepage, [], classifyCommercialModel([homepage]), apiKey, limit, pageTimeout, followLinkedJourney);
     const model = classifyCommercialModel([homepage]);
     const pages = await crawlRepresentativePages(homepage, mapped.links || [], model, apiKey, limit, pageTimeout, followLinkedJourney);
     return pages;
   } catch {
-    return [homepage];
+    return await crawlRepresentativePages(homepage, [], classifyCommercialModel([homepage]), apiKey, limit, pageTimeout, followLinkedJourney);
   }
 }
 
@@ -592,8 +627,11 @@ export async function discoverCompetitorPages(
       const target = entity.targetCustomer.toLowerCase();
       const candidateBusiness = /\b(b2b|bedrijven|zakelijk|ondernemers|organisaties|professionals)\b/i.test(aggregate);
       const candidateConsumer = /\b(b2c|particulieren|consumenten|woningeigenaren|gezinnen|thuis)\b/i.test(aggregate);
-      const differentTargetMarket = /\b(bedrijven|zakelijk|b2b)\b/i.test(target) && candidateConsumer && !candidateBusiness
-        || /\b(particulieren|consumenten|b2c)\b/i.test(target) && candidateBusiness && !candidateConsumer;
+      const retailB2bOnly = entity.businessModel === "retail-ecommerce" && /\b(alleen zakelijk|uitsluitend voor bedrijven|groothandel|wholesale|b2b webshop)\b/i.test(aggregate);
+      const differentTargetMarket = entity.businessModel === "retail-ecommerce"
+        ? retailB2bOnly
+        : /\b(bedrijven|zakelijk|b2b)\b/i.test(target) && candidateConsumer && !candidateBusiness
+          || /\b(particulieren|consumenten|b2c)\b/i.test(target) && candidateBusiness && !candidateConsumer;
       const finalScore = competitorCandidateScore(entity, {
         title: site.pages[0]?.title,
         description: aggregate,
