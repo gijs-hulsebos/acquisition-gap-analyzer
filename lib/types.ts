@@ -48,7 +48,6 @@ export type Evidence = {
   statement: string;
   pageLabel: string;
   url: string;
-  source?: "website" | "competitor";
 };
 
 export type Gap = {
@@ -84,24 +83,6 @@ export type ReadinessCalculation = {
   categories: ReadinessCategory[];
 };
 
-export type PublicSearchCompetitor = {
-  name: string;
-  url: string;
-  pageTitle: string;
-  label: "Likely public search competitor";
-  pagesAnalyzed: number;
-  dataStatus: "scored" | "insufficient-data";
-  /** The same three deterministic findings used for the analyzed company. */
-  findings: Gap[];
-};
-
-export type RejectedCompetitor = {
-  name: string;
-  url: string;
-  reason: string;
-  crawled: boolean;
-};
-
 export type ReportOverview = {
   score: number | null;
   status: "Strong" | "Mixed" | "Needs attention" | "Insufficient data";
@@ -109,30 +90,6 @@ export type ReportOverview = {
   businessModel: BusinessModel;
   primaryConversion: ConversionType;
   estimatedClicks: number | null;
-};
-
-export type CompetitorAnalysis = {
-  status: "available" | "not-found" | "skipped";
-  label: "Likely public search competitors";
-  query: string;
-  geography: string;
-  targetCustomer: string;
-  entity: ResolvedCompanyEntity;
-  note: string;
-  competitors: PublicSearchCompetitor[];
-  rejected: RejectedCompetitor[];
-};
-
-export type ResolvedCompanyEntity = {
-  companyName: string;
-  domain: string;
-  industry: string;
-  businessModel: "local-service" | "professional-service" | "retail-ecommerce" | "software-technology" | "manufacturing-wholesale" | "hospitality" | "other";
-  offerings: string[];
-  geography: string;
-  targetCustomer: string;
-  confidence: Confidence;
-  method: "deterministic" | "openrouter";
 };
 
 export type CrawlStats = {
@@ -161,11 +118,6 @@ export type AnalysisResult = {
   /** Always contains Offer Clarity, CTA Clarity and Customer Journey Path in that order. */
   gaps: Gap[];
   stats: CrawlStats;
-  market: {
-    geography: string;
-    targetCustomer: string;
-  };
-  competitors: CompetitorAnalysis;
   journey: JourneyAnalysis;
   pages: Array<{
     title: string;

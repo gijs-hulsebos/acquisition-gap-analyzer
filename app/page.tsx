@@ -28,7 +28,7 @@ import type { AnalysisResult, Gap } from "@/lib/types";
 import { readAnalysisResponse } from "@/lib/api-response";
 
 type View = "landing" | "loading" | "results";
-type DashboardSection = "overview" | "gaps" | "competitors" | "evidence";
+type DashboardSection = "overview" | "gaps" | "evidence";
 
 const LOADING_STEPS = [
   { label: "Crawling site", detail: "Pages and links" },
@@ -250,7 +250,7 @@ function Sidebar({ result, onReset }: { result: AnalysisResult; onReset: () => v
   useEffect(() => {
     const syncActiveSection = () => {
       const section = window.location.hash.slice(1) as DashboardSection;
-      setActiveSection(["overview", "gaps", "competitors", "evidence"].includes(section) ? section : "overview");
+      setActiveSection(["overview", "gaps", "evidence"].includes(section) ? section : "overview");
     };
 
     syncActiveSection();
@@ -283,7 +283,6 @@ function Sidebar({ result, onReset }: { result: AnalysisResult; onReset: () => v
       <nav aria-label="Analysis navigation">
         <a className={activeSection === "overview" ? "active" : undefined} href="#overview" aria-current={activeSection === "overview" ? "location" : undefined} onClick={(event) => navigateTo(event, "overview")}><LayoutDashboard size={17} /> Overview</a>
         <a className={activeSection === "gaps" ? "active" : undefined} href="#gaps" aria-current={activeSection === "gaps" ? "location" : undefined} onClick={(event) => navigateTo(event, "gaps")}><Target size={17} /> Findings <span>{result.gaps.length}</span></a>
-        <a className={activeSection === "competitors" ? "active" : undefined} href="#competitors" aria-current={activeSection === "competitors" ? "location" : undefined} onClick={(event) => navigateTo(event, "competitors")}><Search size={17} /> Competitors</a>
         <a className={activeSection === "evidence" ? "active" : undefined} href="#evidence" aria-current={activeSection === "evidence" ? "location" : undefined} onClick={(event) => navigateTo(event, "evidence")}><FileSearch size={17} /> Technical details</a>
       </nav>
       <div className="sidebar-system">
@@ -336,7 +335,6 @@ function GapCard({ gap }: { gap: Gap }) {
           <span>Evidence</span>
           {gap.evidence.map((evidence, index) => (
             <div key={`${evidence.url}-${index}`}>
-              {evidence.source === "competitor" && <small className="competitor-evidence-label">Likely public search competitor</small>}
               <p>{evidence.statement}</p>
               <a href={evidence.url} target="_blank" rel="noreferrer">{evidence.pageLabel} <ExternalLink size={11} /></a>
             </div>
@@ -486,70 +484,6 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
   );
 }
 
-function CompetitorComparison({ result }: { result: AnalysisResult }) {
-  const competitors = result.competitors.competitors;
-  const rejected = result.competitors.rejected;
-  const rows = result.gaps.map((siteFinding) => ({
-    siteFinding,
-    competitorFindings: competitors.map((competitor) => competitor.findings.find((finding) => finding.id === siteFinding.id)),
-  }));
-
-  return (
-    <section className="competitor-section" id="competitors">
-      <div className="section-heading competitor-heading">
-        <div>
-          <h2>Public search competitors</h2>
-        </div>
-        <span className="finding-count">{competitors.length} checked</span>
-      </div>
-      <p className="competitor-summary">The same three deterministic findings, compared with up to two likely public search competitors.</p>
-      {competitors.length ? (
-        <div
-          className="competitor-table"
-          role="table"
-          aria-label="Lightweight competitor comparison"
-          style={{ "--comparison-columns": competitors.length + 1 } as CSSProperties}
-        >
-          <div className="competitor-table-row competitor-table-head" role="row">
-            <span>Signal</span>
-            <strong>{result.companyName}</strong>
-            {competitors.map((item) => (
-              <a href={item.url} target="_blank" rel="noreferrer" key={item.url}>
-                <small>{item.label} · {item.pagesAnalyzed} pages</small>{item.name}<ExternalLink size={11} />
-              </a>
-            ))}
-          </div>
-          {rows.map(({ siteFinding, competitorFindings }) => (
-            <div className="competitor-table-row competitor-finding-row" role="row" key={siteFinding.id}>
-              <span>{siteFinding.title}</span>
-              <span><strong>{siteFinding.score === null ? "Insufficient data" : `${siteFinding.score}/100`}</strong><small>{siteFinding.summary}</small></span>
-              {competitorFindings.map((finding, index) => (
-                <span key={`${siteFinding.id}-${competitors[index]?.url}`}>
-                  <strong>{finding?.score === null ? "Insufficient data" : finding ? `${finding.score}/100` : "Not scored"}</strong>
-                  <small>{finding?.summary || "No comparable public evidence."}</small>
-                </span>
-              ))}
-            </div>
-          ))}
-          <footer>{result.competitors.note}</footer>
-        </div>
-      ) : (
-        <div className="competitor-empty"><Search size={18} /><span>{result.competitors.note}</span></div>
-      )}
-      {rejected.length > 0 && (
-        <details className="competitor-rejections">
-          <summary>{rejected.length} public-search result{rejected.length === 1 ? "" : "s"} rejected</summary>
-          <div>
-            {rejected.map((item, index) => (
-              <p key={`${item.url}-${index}`}><a href={item.url} target="_blank" rel="noreferrer">{item.name}<ExternalLink size={10} /></a><span>{item.reason}{item.crawled ? " · Crawl attempted" : " · Not crawled"}</span></p>
-            ))}
-          </div>
-        </details>
-      )}
-    </section>
-  );
-}
-
 function TechnicalDetails({ result }: { result: AnalysisResult }) {
   const routeValue = result.stats.conversionPathSteps === null ? "Not found" : `${result.stats.conversionPathSteps} step${result.stats.conversionPathSteps === 1 ? "" : "s"}`;
   return (
@@ -559,16 +493,6 @@ function TechnicalDetails({ result }: { result: AnalysisResult }) {
         <ChevronRight size={16} />
       </summary>
       <div className="technical-content">
-        <section className="score-method" aria-labelledby="business-profile-heading">
-          <div className="technical-subheading"><div><span>BUSINESS PROFILE</span><h3 id="business-profile-heading">Resolved from first-party evidence</h3></div><small>{result.competitors.entity.confidence} confidence</small></div>
-          <div className="score-method-rows">
-            <div><span>Business type</span><small>{result.competitors.entity.businessModel}</small><strong>{result.competitors.entity.industry}</strong></div>
-            <div><span>Primary offer</span><small>Representative pages</small><strong>{result.primaryService}</strong></div>
-            <div><span>Location</span><small>Public website evidence</small><strong>{result.competitors.entity.geography}</strong></div>
-            <div><span>Target customer</span><small>Public website evidence</small><strong>{result.competitors.entity.targetCustomer}</strong></div>
-          </div>
-        </section>
-
         <section className="score-method journey-method" aria-labelledby="journey-method-heading">
           <div className="technical-subheading"><div><span>CUSTOMER JOURNEY</span><h3 id="journey-method-heading">Representative conversion route</h3></div><small>{result.journey.primary.confidence} confidence</small></div>
           <div className="score-method-rows">
@@ -661,7 +585,6 @@ function ResultsView({ result, onReset }: { result: AnalysisResult; onReset: () 
             <div className="gap-list">{result.gaps.map((gap) => <GapCard gap={gap} key={gap.id} />)}</div>
           </section>
 
-          <CompetitorComparison result={result} />
           <TechnicalDetails result={result} />
 
           <aside className="report-disclaimer" aria-label="Report scope disclaimer">

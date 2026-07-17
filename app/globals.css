@@ -337,7 +337,7 @@ a { color: inherit; }
 .metric-card strong { margin: 2px 0 0; font-size: 16px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .metric-card small { color: #564b5f; font-size: 6px; white-space: nowrap; }
 
-.gaps-section, .evidence-section, .competitor-section { scroll-margin-top: 92px; }
+.gaps-section, .evidence-section { scroll-margin-top: 92px; }
 .section-heading { margin-bottom: 18px; display: flex; align-items: flex-end; justify-content: space-between; gap: 25px; }
 .section-kicker { color: #a276cd; font-size: 9px; font-weight: 720; letter-spacing: 1.2px; }
 .section-heading h2 { margin: 5px 0 4px; font-size: 26px; letter-spacing: -.95px; font-weight: 700; }
@@ -412,27 +412,9 @@ a { color: inherit; }
 .finding-detail p { margin: 0; color: #a39ba8; font-size: 10px; line-height: 1.55; }
 .finding-evidence > div + div { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(211, 188, 235, .07); }
 .finding-evidence a { display: inline-flex; align-items: center; gap: 4px; margin-top: 5px; color: #8f73a6; border-bottom: 1px solid rgba(143,115,166,.35); text-decoration: none; font-size: 8px; }
-.competitor-evidence-label { display: inline-flex; width: fit-content; margin: 0 0 5px; padding: 3px 6px; border: 1px solid rgba(177,126,218,.18); border-radius: 999px; color: #a981c7; background: rgba(123,77,164,.08); font-size: 6px; font-weight: 700; letter-spacing: .45px; text-transform: uppercase; }
 .finding-action { padding-left: 15px; border-left: 2px solid rgba(165, 104, 204, .42); }
 .finding-action p { color: #c2b7c9; }
 
-.competitor-section { margin: 0 0 38px; }
-.competitor-heading { align-items: flex-end; }
-.competitor-table { --comparison-columns: 3; overflow-x: auto; border: 1px solid rgba(211,188,235,.11); border-radius: 13px; background: linear-gradient(145deg, rgba(19,16,23,.96), rgba(12,10,15,.98)); box-shadow: var(--shadow-soft); }
-.competitor-table-row { min-width: 690px; min-height: 52px; padding: 0 18px; display: grid; grid-template-columns: minmax(170px,1.35fr) repeat(var(--comparison-columns), minmax(130px,1fr)); align-items: center; gap: 18px; border-top: 1px solid rgba(211,188,235,.075); color: #8d8592; font-size: 9px; }
-.competitor-table-head { min-height: 68px; border-top: 0; background: rgba(255,255,255,.018); }
-.competitor-table-row > span:first-child { color: #77707c; }
-.competitor-table-row > strong { color: #d1cad5; font-size: 10px; font-weight: 630; }
-.competitor-table-row > a { min-width: 0; position: relative; display: flex; align-items: center; gap: 5px; color: #c7b9d0; text-decoration: none; font-size: 10px; font-weight: 620; }
-.competitor-table-row > a small { display: block; position: absolute; top: -17px; color: #725e81; font-size: 6px; font-weight: 650; letter-spacing: .45px; text-transform: uppercase; }
-.competitor-table-row > a:hover { color: #d78bf7; }
-.competitor-finding-row { min-height: 82px; align-items: start; padding-top: 14px; padding-bottom: 14px; }
-.competitor-finding-row > span:not(:first-child) { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.competitor-finding-row > span:not(:first-child) strong { color: #d7cce0; font-size: 12px; font-weight: 680; font-variant-numeric: tabular-nums; }
-.competitor-finding-row > span:not(:first-child) small { color: #8d8492; font-size: 9px; line-height: 1.45; }
-.competitor-table footer { min-width: 690px; padding: 11px 18px; border-top: 1px solid rgba(211,188,235,.075); color: #625b67; font-size: 8px; line-height: 1.5; }
-.competitor-empty { min-height: 68px; padding: 0 18px; border: 1px solid rgba(211,188,235,.1); border-radius: 12px; display: flex; align-items: center; gap: 10px; color: #79717e; background: rgba(15,12,19,.86); font-size: 10px; }
-.competitor-empty svg { color: #8b6aa7; }
 
 .evidence-section { margin-top: 24px; border: 1px solid rgba(211, 188, 235, .1); border-radius: 12px; background: rgba(14, 12, 17, .78); overflow: hidden; }
 .evidence-section > summary { min-height: 54px; padding: 0 18px; display: flex; align-items: center; justify-content: space-between; gap: 20px; color: #c0b2ca; cursor: pointer; list-style: none; font-size: 11px; font-weight: 620; transition: background .2s, color .2s; }
@@ -535,7 +517,7 @@ a { color: inherit; }
 .gaps-section { margin-top: 28px; margin-bottom: 38px; }
 .gaps-section .section-heading { margin-bottom: 13px; }
 .gaps-section .section-heading h2 { font-size: 25px; }
-.gaps-section .section-heading h2, .competitor-heading h2 { margin-top: 0; }
+.gaps-section .section-heading h2 { margin-top: 0; }
 .gap-list { gap: 9px; }
 .finding-row { border-color: rgba(211,188,235,.13); background: linear-gradient(145deg, rgba(21,17,25,.97), rgba(12,10,15,.98)); }
 .finding-row-primary { border-color: rgba(187,121,229,.26); box-shadow: 0 18px 45px rgba(0,0,0,.18), inset 3px 0 rgba(157,83,210,.58); }
@@ -554,19 +536,6 @@ a { color: inherit; }
 .finding-detail .finding-evidence > div { min-width: 0; }
 .finding-detail .finding-evidence > div + div { margin: 0; padding: 0 0 0 20px; border-top: 0; border-left: 1px solid rgba(211,188,235,.08); }
 
-.competitor-section { margin: 0 0 30px; }
-.competitor-heading { margin-bottom: 11px; }
-.competitor-heading h2 { font-size: 23px; }
-.competitor-summary { margin: 0 0 10px; padding: 10px 13px; border: 1px solid rgba(179,126,215,.11); border-radius: 9px; color: #aea2b5; background: rgba(91,58,112,.055); font-size: 10px; line-height: 1.45; }
-.competitor-rejections { margin-top: 10px; border: 1px solid rgba(211,188,235,.08); border-radius: 9px; color: #92879a; }
-.competitor-rejections > summary { padding: 10px 12px; cursor: pointer; font-size: 9px; }
-.competitor-rejections > div { padding: 0 12px 10px; display: grid; gap: 7px; }
-.competitor-rejections p { margin: 0; display: grid; gap: 2px; font-size: 9px; }
-.competitor-rejections a { display: inline-flex; align-items: center; gap: 4px; color: #c9b3d5; }
-.competitor-rejections span { color: #786f7d; }
-.competitor-table-row { min-height: 44px; }
-.competitor-table-head { min-height: 59px; }
-.competitor-table footer { padding-top: 9px; padding-bottom: 9px; }
 
 .technical-section { scroll-margin-top: 92px; margin-top: 6px; border: 1px solid rgba(211,188,235,.09); border-radius: 12px; overflow: hidden; background: rgba(13,11,16,.76); }
 .technical-section > summary { min-height: 58px; padding: 0 17px; display: flex; align-items: center; justify-content: space-between; gap: 20px; cursor: pointer; list-style: none; color: #9c91a3; transition: background .2s, color .2s; }
@@ -731,7 +700,6 @@ a { color: inherit; }
   .metric-card:nth-child(-n+2) { border-top: 0; }
   .metric-card:nth-child(odd) { border-right: 1px solid rgba(211, 188, 235, .09); }
   .metric-card:nth-child(even) { border-right: 0; }
-  .competitor-heading p { max-width: 280px; line-height: 1.5; }
   .section-heading { align-items: flex-start; }
   .finding-count { display: none; }
   .finding-row > summary { min-height: 0; padding: 15px 14px; grid-template-columns: 38px minmax(0,1fr) 18px; gap: 10px; }
@@ -744,8 +712,6 @@ a { color: inherit; }
   .finding-detail .finding-evidence { grid-template-columns: 1fr; gap: 12px; }
   .finding-detail .finding-evidence > div + div { padding: 12px 0 0; border-left: 0; border-top: 1px solid rgba(211,188,235,.08); }
   .finding-action { grid-column: auto; }
-  .competitor-section { margin-bottom: 24px; }
-  .competitor-summary { font-size: 9px; }
   .technical-section > summary small { display: none; }
   .technical-content { padding: 11px; }
   .score-method, .crawl-detail { padding: 13px; }
@@ -845,7 +811,7 @@ body { font-variation-settings: "wght" 500; }
 
 /* Findings */
 .section-kicker { color: #ba8ddb; font-size: 10px; }
-.section-heading p, .competitor-summary { color: #a99eae; font-size: 11px; }
+.section-heading p { color: #a99eae; font-size: 11px; }
 .finding-count { color: #aaa1ae; font-size: 10px; }
 .finding-rank small { color: #93879a; font-size: 9px; }
 .severity { font-size: 9px; }
@@ -856,15 +822,6 @@ body { font-variation-settings: "wght" 500; }
 .finding-detail > div > span { color: #a397aa; font-size: 9px; }
 .finding-detail p { color: #c1b8c5; font-size: 11px; line-height: 1.6; }
 .finding-evidence a { color: #b28fc9; font-size: 10px; }
-.competitor-evidence-label { color: #c49be0; font-size: 9px; }
-
-/* Competitors and technical evidence */
-.competitor-table-row { color: #aaa2af; font-size: 11px; }
-.competitor-table-row > span:first-child { color: #9e95a2; }
-.competitor-table-row > strong, .competitor-table-row > a { font-size: 11px; }
-.competitor-table-row > a small { color: #9c83ac; font-size: 9px; }
-.competitor-table footer { color: #918895; font-size: 10px; }
-.competitor-empty { color: #aaa1b0; font-size: 11px; }
 .technical-section > summary { color: #b8adbd; }
 .technical-section > summary strong { font-size: 12px; }
 .technical-section > summary small { color: #928898; font-size: 10px; }
@@ -896,7 +853,6 @@ body { font-variation-settings: "wght" 500; }
   .readiness-copy p { font-size: 11px; }
   .journey-value { font-size: 11px; }
   .finding-title h3 { font-size: 16px; }
-  .competitor-summary { font-size: 10px; }
 }
 
 /* Fluid dashboard sizing */
@@ -969,12 +925,6 @@ body { font-variation-settings: "wght" 500; }
   .finding-detail { padding: 19px 24px 22px 179px; }
   .finding-detail p { font-size: 12px; }
 
-  .competitor-heading h2 { font-size: 27px; }
-  .competitor-summary { padding: 12px 15px; font-size: 12px; }
-  .competitor-table-row { min-height: 52px; padding-inline: 22px; font-size: 12px; }
-  .competitor-table-head { min-height: 68px; }
-  .competitor-table-row > strong, .competitor-table-row > a { font-size: 12px; }
-  .competitor-table footer { font-size: 11px; }
   .technical-section > summary { min-height: 66px; }
 }
 
@@ -1007,7 +957,6 @@ body { font-variation-settings: "wght" 500; }
   .overview-workspace { gap: 11px; }
   .conversion-readiness, .journey-panel { border-radius: 13px; }
   .gaps-section { margin-top: 25px; }
-  .gaps-section .section-heading h2, .competitor-heading h2 { font-size: 23px; }
+  .gaps-section .section-heading h2 { font-size: 23px; }
   .finding-row > summary { padding: 17px 15px; }
-  .competitor-table { overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
 }

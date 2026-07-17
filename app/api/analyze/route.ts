@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import { analyzeCrawl } from "@/lib/analyzer";
-import { applyCompetitorAnalysis } from "@/lib/competitors";
 import { DEMO_RESULT } from "@/lib/fixture";
-import { crawlWebsite, discoverCompetitorPages } from "@/lib/firecrawl";
-import { buildCompetitorSearchQuery, buildDeterministicEntityProfile, resolveCompanyEntity } from "@/lib/entity";
+import { crawlWebsite } from "@/lib/firecrawl";
 import { enhanceFindings } from "@/lib/llm";
 import { normalizeAndValidateUrl } from "@/lib/url";
 
@@ -59,78 +57,20 @@ export async function POST(request: Request) {
   try {
     const pages = await within(
       crawlWebsite(url, firecrawlKey),
-      25_000,
+      32_000,
       "The first-party crawl took too long to return evidence. Please try again.",
     );
     const deterministic = analyzeCrawl(pages, url, Date.now() - startedAt);
-    const fallbackEntity = buildDeterministicEntityProfile(deterministic, pages);
-    let entity = fallbackEntity;
-    if (process.env.OPENROUTER_API_KEY && Date.now() - startedAt < 30_000) {
-      try {
-        entity = await within(
-          resolveCompanyEntity(deterministic, pages, process.env.OPENROUTER_API_KEY),
-          5_500,
-          "Company profile enrichment timed out.",
-        );
-      } catch {
-        entity = fallbackEntity;
-      }
-    }
-    const entityResolved = {
-      ...deterministic,
-      competitors: {
-        ...deterministic.competitors,
-        query: buildCompetitorSearchQuery(entity),
-        geography: entity.geography,
-        targetCustomer: entity.targetCustomer,
-        entity,
-        note: `Resolved ${entity.companyName} as ${entity.industry} before competitor discovery.`,
-      },
-    };
-    let compared = entityResolved;
-    const competitorBudget = Math.min(19_000, 50_000 - (Date.now() - startedAt));
-    if (competitorBudget >= 4_000) {
-      try {
-        const discovery = await within(
-          discoverCompetitorPages(entity, url, firecrawlKey),
-          competitorBudget,
-          "Competitor discovery timed out.",
-        );
-        const withComparisons = applyCompetitorAnalysis(entityResolved, discovery.accepted);
-        compared = {
-          ...withComparisons,
-          competitors: { ...withComparisons.competitors, rejected: discovery.rejected },
-        };
-      } catch {
-        compared = {
-          ...entityResolved,
-          competitors: {
-            ...entityResolved.competitors,
-            status: "not-found",
-            note: `The entity was resolved as ${entity.industry}, but competitor evidence was unavailable within this scan. The main company report is unaffected.`,
-          },
-        };
-      }
-    } else {
-      compared = {
-        ...entityResolved,
-        competitors: {
-          ...entityResolved.competitors,
-          status: "skipped",
-          note: `The company report used the available scan time, so competitor discovery was skipped. The main company report is unaffected.`,
-        },
-      };
-    }
-    let result = compared;
-    if (process.env.OPENROUTER_API_KEY && Date.now() - startedAt < 44_000) {
+    let result = deterministic;
+    if (process.env.OPENROUTER_API_KEY && Date.now() - startedAt < 42_000) {
       try {
         result = await within(
-          enhanceFindings(compared, process.env.OPENROUTER_API_KEY),
-          Math.min(7_000, 52_000 - (Date.now() - startedAt)),
+          enhanceFindings(deterministic, process.env.OPENROUTER_API_KEY),
+          Math.min(8_000, 52_000 - (Date.now() - startedAt)),
           "Report copy enhancement timed out.",
         );
       } catch {
-        result = compared;
+        result = deterministic;
       }
     }
     result = { ...result, stats: { ...result.stats, processingMs: Date.now() - startedAt } };
