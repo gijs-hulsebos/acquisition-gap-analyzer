@@ -311,7 +311,8 @@ function MetricCard({ icon: Icon, value, label }: { icon: typeof Globe2; value: 
 }
 
 function PageComposition({ result }: { result: AnalysisResult }) {
-  const types: Array<AnalysisResult["pages"][number]["type"]> = ["Homepage", "Service", "Contact", "Other"];
+  const order: Array<AnalysisResult["pages"][number]["type"]> = ["Homepage", "Category", "Product", "Service", "Cart", "Checkout", "Booking", "Quote", "Application", "Contact", "Pricing", "Trust", "Other"];
+  const types = order.filter((type) => result.pages.some((page) => page.type === type));
   const counts = types.map((type) => ({ type, count: result.pages.filter((page) => page.type === type).length }));
 
   return (
@@ -329,8 +330,8 @@ function GapCard({ gap }: { gap: Gap }) {
         <span className="finding-rank">0{gap.rank}</span>
         <span className={`gap-icon gap-icon-${gap.id}`}><Icon size={19} /></span>
         <div className="finding-title">
-          <div><span className={`severity severity-${gap.severity.toLowerCase()}`}>{gap.severity}</span></div>
-          <h3>{gap.title} <span className="finding-score">{gap.score}/100</span></h3>
+          <div>{gap.score === null ? <span className="severity">Insufficient data</span> : <span className={`severity severity-${gap.severity.toLowerCase()}`}>{gap.severity}</span>}</div>
+          <h3>{gap.title} <span className="finding-score">{gap.score === null ? "Insufficient data" : `${gap.score}/100`}</span></h3>
           <p>{gap.summary}</p>
           <div className="finding-action-preview"><span>Recommended action</span><strong>{gap.nextAction}</strong></div>
         </div>
@@ -519,17 +520,17 @@ function CompetitorComparison({ result }: { result: AnalysisResult }) {
             <strong>{result.companyName}</strong>
             {competitors.map((item) => (
               <a href={item.url} target="_blank" rel="noreferrer" key={item.url}>
-                <small>{item.label}</small>{item.name}<ExternalLink size={11} />
+                <small>{item.label} · {item.pagesAnalyzed} pages</small>{item.name}<ExternalLink size={11} />
               </a>
             ))}
           </div>
           {rows.map(({ siteFinding, competitorFindings }) => (
             <div className="competitor-table-row competitor-finding-row" role="row" key={siteFinding.id}>
               <span>{siteFinding.title}</span>
-              <span><strong>{siteFinding.score}/100</strong><small>{siteFinding.summary}</small></span>
+              <span><strong>{siteFinding.score === null ? "Insufficient data" : `${siteFinding.score}/100`}</strong><small>{siteFinding.summary}</small></span>
               {competitorFindings.map((finding, index) => (
                 <span key={`${siteFinding.id}-${competitors[index]?.url}`}>
-                  <strong>{finding ? `${finding.score}/100` : "Not scored"}</strong>
+                  <strong>{finding?.score === null ? "Insufficient data" : finding ? `${finding.score}/100` : "Not scored"}</strong>
                   <small>{finding?.summary || "No comparable public evidence."}</small>
                 </span>
               ))}
@@ -553,6 +554,16 @@ function TechnicalDetails({ result }: { result: AnalysisResult }) {
         <ChevronRight size={16} />
       </summary>
       <div className="technical-content">
+        <section className="score-method" aria-labelledby="business-profile-heading">
+          <div className="technical-subheading"><div><span>BUSINESS PROFILE</span><h3 id="business-profile-heading">Resolved from first-party evidence</h3></div><small>{result.competitors.entity.confidence} confidence</small></div>
+          <div className="score-method-rows">
+            <div><span>Business type</span><small>{result.competitors.entity.businessModel}</small><strong>{result.competitors.entity.industry}</strong></div>
+            <div><span>Primary offer</span><small>Representative pages</small><strong>{result.primaryService}</strong></div>
+            <div><span>Location</span><small>Public website evidence</small><strong>{result.competitors.entity.geography}</strong></div>
+            <div><span>Target customer</span><small>Public website evidence</small><strong>{result.competitors.entity.targetCustomer}</strong></div>
+          </div>
+        </section>
+
         <section className="score-method journey-method" aria-labelledby="journey-method-heading">
           <div className="technical-subheading"><div><span>CUSTOMER JOURNEY</span><h3 id="journey-method-heading">Representative conversion route</h3></div><small>{result.journey.primary.confidence} confidence</small></div>
           <div className="score-method-rows">
@@ -570,7 +581,7 @@ function TechnicalDetails({ result }: { result: AnalysisResult }) {
               <div key={category.id}><span>{category.label}</span><small>{category.weight}% weight</small><strong>{category.score ?? "Not scored"}</strong></div>
             ))}
           </div>
-          <p>{result.readiness.formula} · {result.score === null ? `A score needs ${result.readiness.minimumWeight}% assessed weight and two readable pages.` : `Conversion readiness: ${result.score}%.`}</p>
+          <p>{result.readiness.formula} · {result.score === null ? `A score requires at least three useful representative pages; ${result.stats.pagesCrawled} page${result.stats.pagesCrawled === 1 ? " was" : "s were"} returned.` : `Conversion readiness: ${result.score}%.`}</p>
         </section>
 
         <section className="crawl-detail" aria-labelledby="crawl-detail-heading">

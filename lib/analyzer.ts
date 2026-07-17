@@ -679,10 +679,10 @@ function trustCategory(homepage: PageFacts, pages: PageFacts[], servicePages: Pa
 }
 
 function requiredFinding(item: ReadinessCategory, homepage: PageFacts, rank: number, clicks: number | null): Gap {
-  const score = item.score ?? 0;
+  const score = item.score;
   const shared = {
     rank,
-    severity: severityFor(100 - score),
+    severity: score === null ? "Low" as const : severityFor(100 - score),
     score,
     confidence: item.confidence,
     evidence: item.evidence.length ? item.evidence : [{ statement: item.explanation, pageLabel: "Crawl evidence", url: homepage.url }],
@@ -694,7 +694,7 @@ function requiredFinding(item: ReadinessCategory, homepage: PageFacts, rank: num
       id: "offer-clarity",
       title: "Offer Clarity",
       summary: item.explanation,
-      nextAction: score >= 80 ? "Keep the primary offer consistent across the journey." : "State the product or service and customer outcome in the main heading.",
+      nextAction: score !== null && score >= 80 ? "Keep the primary offer consistent across the journey." : "State the product or service and customer outcome in the main heading.",
     };
   }
 
@@ -704,7 +704,7 @@ function requiredFinding(item: ReadinessCategory, homepage: PageFacts, rank: num
       id: "cta-clarity",
       title: "CTA Clarity",
       summary: item.explanation,
-      nextAction: score >= 80 ? "Keep one primary CTA label consistent on every journey page." : "Use one obvious, specific conversion CTA on the landing page.",
+      nextAction: score !== null && score >= 80 ? "Keep one primary CTA label consistent on every journey page." : "Use one obvious, specific conversion CTA on the landing page.",
     };
   }
 
@@ -712,7 +712,7 @@ function requiredFinding(item: ReadinessCategory, homepage: PageFacts, rank: num
     ...shared,
     id: "customer-journey-path",
     title: "Customer Journey Path",
-    summary: clicks === null ? "A complete public route to conversion could not be confirmed." : `The shortest evidenced route reaches conversion in ${clicks} click${clicks === 1 ? "" : "s"}.`,
+    summary: score === null ? item.explanation : clicks === null ? "A complete public route to conversion could not be confirmed." : `The shortest evidenced route reaches conversion in ${clicks} click${clicks === 1 ? "" : "s"}.`,
     nextAction: clicks === null ? "Expose a direct route to the primary conversion." : clicks <= 2 ? "Keep the shortest conversion route prominent." : "Remove intermediate steps from the primary conversion route.",
   };
 }
@@ -726,10 +726,8 @@ function scoreLabel(score: number | null) {
 }
 
 function pageType(page: PageFacts, homepage: PageFacts, servicePages: PageFacts[]) {
-  if (page.normalizedUrl === homepage.normalizedUrl) return "Homepage" as const;
-  if (isContactPage(page)) return "Contact" as const;
   if (servicePages.includes(page) || GENERIC_SERVICE_PATH.test(new URL(page.normalizedUrl).pathname)) return "Service" as const;
-  return "Other" as const;
+  return journeyPageType(page, homepage);
 }
 
 export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, processingMs: number): AnalysisResult {
@@ -751,16 +749,26 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
   const path = detectedPath && (detectedPath.length > 1 || homepage.forms.some((form) => form.isConversion)) ? detectedPath : null;
   const destination = path ? pages.find((page) => page.normalizedUrl === path[path.length - 1]) || null : null;
 
-  const categories = [
+  const rawCategories = [
     offerCategory(homepage, pages, primaryService),
     ctaCategory(homepage, pages, commercialModel),
     conversionCategory(homepage, pages, path),
   ];
-  const assessedWeight = categories.reduce((sum, item) => sum + item.weight, 0);
+  const readablePages = pages.filter((page) => page.statusCode < 400 && page.bodyText.length >= 80).length;
+  const hasEnoughEvidence = readablePages >= 3;
+  const insufficientExplanation = `Insufficient data: only ${readablePages} useful page${readablePages === 1 ? " was" : "s were"} available; at least 3 are required for a scored assessment.`;
+  const categories = hasEnoughEvidence ? rawCategories : rawCategories.map((item) => ({
+    ...item,
+    score: null,
+    confidence: "Low" as const,
+    explanation: insufficientExplanation,
+  }));
+  const assessedWeight = hasEnoughEvidence ? categories.reduce((sum, item) => sum + item.weight, 0) : 0;
   const minimumWeight = 100;
-  const readablePages = pages.filter((page) => page.bodyText.length >= 80).length;
-  const score = Math.round(categories.reduce((sum, item) => sum + (item.score ?? 0) * item.weight, 0) / assessedWeight);
-  const reportConfidence = confidenceFor(readablePages, categories.length);
+  const score = hasEnoughEvidence
+    ? Math.round(categories.reduce((sum, item) => sum + (item.score ?? 0) * item.weight, 0) / 100)
+    : null;
+  const reportConfidence = hasEnoughEvidence ? confidenceFor(readablePages, categories.length) : "Low";
   const clicks = path ? Math.max(0, path.length - 1) : null;
   const gaps: Gap[] = categories.map((item, index) => requiredFinding(item, homepage, index + 1, clicks));
   const companyName = inferCompanyName(homepage);
@@ -775,7 +783,7 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
     score,
     scoreLabel: scoreLabel(score),
     readiness: {
-      status: "scored",
+      status: hasEnoughEvidence ? "scored" : "insufficient-data",
       score,
       assessedWeight,
       minimumWeight,
@@ -784,11 +792,13 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
     },
     confidence: reportConfidence,
     analyzedAt: new Date().toISOString(),
-    summary: `Representative journey score: ${score}/100 across offer clarity, CTA clarity and customer journey path.`,
+    summary: hasEnoughEvidence
+      ? `Representative journey score: ${score}/100 across offer clarity, CTA clarity and customer journey path.`
+      : insufficientExplanation,
     overview: {
       score,
-      status: score >= 80 ? "Strong" : score >= 60 ? "Mixed" : "Needs attention",
-      explanation: score >= 80 ? "The representative journey is clear and direct." : score >= 60 ? "The journey is usable, with specific opportunities to improve." : "The representative journey contains visible acquisition friction.",
+      status: score === null ? "Insufficient data" : score >= 80 ? "Strong" : score >= 60 ? "Mixed" : "Needs attention",
+      explanation: score === null ? insufficientExplanation : score >= 80 ? "The representative journey is clear and direct." : score >= 60 ? "The journey is usable, with specific opportunities to improve." : "The representative journey contains visible acquisition friction.",
       businessModel: journey.businessModels[0],
       primaryConversion: journey.primaryConversionType,
       estimatedClicks: clicks,

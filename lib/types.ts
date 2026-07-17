@@ -74,7 +74,7 @@ export type Gap = {
   summary: string;
   severity: Severity;
   /** Deterministic quality score: higher is better. */
-  score: number;
+  score: number | null;
   confidence: Confidence;
   evidence: Evidence[];
   nextAction: string;
@@ -122,8 +122,10 @@ export type PublicSearchCompetitor = {
   pageTitle: string;
   label: "Likely public search competitor";
   dedicatedServicePage: boolean;
-  ctaClarity: number;
+  ctaClarity: number | null;
   conversionPathSteps: number | null;
+  pagesAnalyzed: number;
+  dataStatus: "scored" | "insufficient-data";
   trustSignals: TrustSignalType[];
   /** The same three deterministic findings used for the analyzed company. */
   findings: Gap[];
@@ -131,8 +133,8 @@ export type PublicSearchCompetitor = {
 };
 
 export type ReportOverview = {
-  score: number;
-  status: "Strong" | "Mixed" | "Needs attention";
+  score: number | null;
+  status: "Strong" | "Mixed" | "Needs attention" | "Insufficient data";
   explanation: string;
   businessModel: BusinessModel;
   primaryConversion: ConversionType;
@@ -201,7 +203,7 @@ export type AnalysisResult = {
   pages: Array<{
     title: string;
     url: string;
-    type: "Homepage" | "Service" | "Contact" | "Other";
+    type: JourneyPageType;
     statusCode: number;
   }>;
   llmEnhanced: boolean;

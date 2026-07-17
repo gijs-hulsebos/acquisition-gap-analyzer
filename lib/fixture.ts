@@ -78,6 +78,8 @@ export const DEMO_RESULT: AnalysisResult = {
         dedicatedServicePage: true,
         ctaClarity: 92,
         conversionPathSteps: 0,
+        pagesAnalyzed: 4,
+        dataStatus: "scored",
         trustSignals: ["Reviews or ratings", "Certifications", "Guarantees"],
         findings: [
           { id: "offer-clarity", rank: 1, title: "Offer Clarity", summary: "The selected page clearly describes residential heat-pump installation.", severity: "Low", score: 92, confidence: "Medium", evidence: [competitorEvidence("The page title, heading and description repeat the installation offer.", "https://rijnstad-warmte.example/warmtepomp-installatie")], nextAction: "Keep the offer consistent." },
@@ -99,6 +101,8 @@ export const DEMO_RESULT: AnalysisResult = {
         dedicatedServicePage: true,
         ctaClarity: 72,
         conversionPathSteps: 1,
+        pagesAnalyzed: 3,
+        dataStatus: "scored",
         trustSignals: ["Testimonials", "Contact details"],
         findings: [
           { id: "offer-clarity", rank: 1, title: "Offer Clarity", summary: "The selected page clearly presents its heat-pump service.", severity: "Low", score: 86, confidence: "Medium", evidence: [competitorEvidence("The page title and heading identify heat pumps for homes.", "https://ecowarm-utrecht.example/diensten/warmtepompen")], nextAction: "Keep the offer consistent." },

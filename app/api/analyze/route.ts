@@ -49,19 +49,6 @@ export async function POST(request: Request) {
   try {
     const pages = await crawlWebsite(url, firecrawlKey);
     const deterministic = analyzeCrawl(pages, url, Date.now() - startedAt);
-    if (Date.now() - startedAt > 30_000) {
-      return NextResponse.json(
-        {
-          ...deterministic,
-          competitors: {
-            ...deterministic.competitors,
-            status: "skipped",
-            note: "Competitor discovery was skipped because the website crawl used the available analysis time. The customer-journey report is still based on the returned first-party evidence.",
-          },
-        },
-        { headers: { "Cache-Control": "no-store" } },
-      );
-    }
     const entity = await resolveCompanyEntity(deterministic, pages, process.env.OPENROUTER_API_KEY);
     const entityResolved = {
       ...deterministic,
@@ -76,23 +63,25 @@ export async function POST(request: Request) {
     };
     let compared = entityResolved;
     try {
-      const competitorPages = await discoverCompetitorPages(
+      const competitorSites = await discoverCompetitorPages(
         entity,
         url,
         firecrawlKey,
       );
-      compared = applyCompetitorAnalysis(entityResolved, competitorPages);
+      compared = applyCompetitorAnalysis(entityResolved, competitorSites);
     } catch {
       compared = {
         ...entityResolved,
         competitors: {
           ...entityResolved.competitors,
           status: "not-found",
-          note: `The entity was resolved as ${entity.industry}, but no sufficiently matching public-search competitor could be verified.`,
+          note: `The entity was resolved as ${entity.industry}, but no sufficiently matching public-search competitor could be verified. The main company report is unaffected.`,
         },
       };
     }
-    const result = await enhanceFindings(compared, process.env.OPENROUTER_API_KEY);
+    const result = Date.now() - startedAt < 50_000
+      ? await enhanceFindings(compared, process.env.OPENROUTER_API_KEY)
+      : compared;
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "The website could not be analyzed.";

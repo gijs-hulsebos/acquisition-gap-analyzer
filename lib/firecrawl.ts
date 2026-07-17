@@ -1,7 +1,7 @@
 import type { CrawlPage } from "./types";
 import { buildCompetitorSearchQuery, competitorCandidateScore } from "./entity";
 import type { ResolvedCompanyEntity } from "./types";
-import { classifyCommercialModel, journeyRolesForModel } from "./journey-model";
+import { classifyCommercialModel } from "./journey-model";
 import type { CommercialModel, JourneyRole } from "./journey-model";
 import { normalizeAndValidateUrl } from "./url";
 
@@ -59,6 +59,11 @@ type FirecrawlMapResponse = {
   success?: boolean;
   links?: FirecrawlMapLink[];
   error?: string;
+};
+
+export type CompetitorSiteCrawl = {
+  seedUrl: string;
+  pages: CrawlPage[];
 };
 
 const FIRECRAWL_BASE_URL = "https://api.firecrawl.dev/v2";
@@ -156,8 +161,8 @@ async function crawlWebsiteFallback(url: string, apiKey: string): Promise<CrawlP
   throw new Error("The crawl took too long. Try the website again in a moment.");
 }
 
-const EXCLUDED_COMPETITOR_HOSTS = /(^|\.)(facebook|instagram|linkedin|youtube|x|twitter|trustpilot|werkspot|telefoonboek|openingstijden|google|yelp|tripadvisor|pinterest|indeed|amazon|bol|marktplaats|kvk|allebedrijven|bedrijvenpagina)\./i;
-const NON_COMMERCIAL_RESULT = /\/(blog|nieuws|news|vacature|jobs?|privacy|voorwaarden|terms|reviews?|directory|gids|lijst|top-?10)(\/|$)/i;
+const EXCLUDED_COMPETITOR_HOSTS = /(^|\.)(facebook|instagram|linkedin|youtube|x|twitter|trustpilot|werkspot|telefoonboek|openingstijden|google|yelp|tripadvisor|pinterest|indeed|amazon|bol|marktplaats|kvk|allebedrijven|bedrijvenpagina|wikipedia|reddit|medium|startpagina|indebuurt|goudengids)\./i;
+const NON_COMMERCIAL_RESULT = /\/(blog|nieuws|news|artikelen?|articles?|vacature|jobs?|privacy|voorwaarden|terms|reviews?|directory|directories|gids|lijst|top-?\d+|vergelijk|comparison|beste)(\/|$)/i;
 
 async function scrapePage(url: string, apiKey: string, timeout = 8_000): Promise<CrawlPage> {
   const response = await fetch(`${FIRECRAWL_BASE_URL}/scrape`, {
@@ -306,50 +311,83 @@ function chooseJourneyCandidate(
   return fallbacks[0]?.item || null;
 }
 
-function hasHomepageProductGrid(page: CrawlPage) {
-  const content = `${page.markdown} ${page.html}`;
-  const prices = content.match(/(?:€|eur\s*)\s*\d{1,5}(?:[.,]\d{2})?|\b\d{1,4}[,.]\d{2}\b/gi) || [];
-  const productMarkup = content.match(/(?:schema\.org\/Product|"@type"\s*:\s*"Product"|product-card|product-grid|product-list)/gi) || [];
-  return prices.length >= 2 || productMarkup.length >= 2;
+function representativePlan(model: CommercialModel): JourneyRole[] {
+  if (model === "ecommerce") return ["category", "product", "cart", "checkout", "trust", "pricing", "conversion"];
+  if (model === "booking") return ["service", "service", "conversion", "pricing", "trust"];
+  if (model === "software") return ["pricing", "service", "conversion", "trust"];
+  if (model === "marketplace") return ["category", "product", "conversion", "pricing", "trust"];
+  if (model === "service") return ["service", "service", "conversion", "pricing", "trust"];
+  return ["service", "conversion", "pricing", "trust"];
 }
 
-async function crawlOneRepresentativeJourney(
+export function selectRepresentativeResults(pages: CrawlPage[], baseUrl: string, limit = 8) {
+  const ownOrigin = new URL(baseUrl).origin;
+  const seen = new Set<string>();
+  const unique = pages.filter((page) => {
+    try {
+      const normalized = normalizeAndValidateUrl(page.url);
+      if (new URL(normalized).origin !== ownOrigin || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  if (!unique.length) return [];
+  const homepage = [...unique].sort((a, b) => new URL(a.url).pathname.length - new URL(b.url).pathname.length)[0];
+  const model = classifyCommercialModel(unique);
+  const selected = [homepage];
+  const used = new Set([normalizeAndValidateUrl(homepage.url)]);
+  for (const role of representativePlan(model)) {
+    const candidate = unique.find((page) => !used.has(normalizeAndValidateUrl(page.url)) && representativeKind({
+      url: page.url,
+      title: page.title,
+      description: `${page.description} ${page.markdown.slice(0, 900)} ${page.html.slice(0, 1400)}`,
+    }, homepage.url) === role);
+    if (!candidate) continue;
+    selected.push(candidate);
+    used.add(normalizeAndValidateUrl(candidate.url));
+    if (selected.length >= limit) break;
+  }
+  return selected.slice(0, limit);
+}
+
+async function crawlRepresentativePages(
   homepage: CrawlPage,
   mappedLinks: FirecrawlMapLink[],
   model: CommercialModel,
   apiKey: string,
+  limit = 8,
 ) {
   const pages = [homepage];
   const visited = new Set([normalizeAndValidateUrl(homepage.url)]);
   const buckets = journeyBuckets(homepage.url, mappedLinks);
-  const roles = journeyRolesForModel(model).filter((role) => role !== "homepage" && !(model === "ecommerce" && role === "category" && hasHomepageProductGrid(homepage)));
-  let current = homepage;
+  const roles = representativePlan(model);
+  const candidates: Array<FirecrawlMapLink & { url: string }> = [];
 
   for (const role of roles) {
-    const candidate = chooseJourneyCandidate(role, current, buckets, homepage.url, visited);
+    const candidate = chooseJourneyCandidate(role, homepage, buckets, homepage.url, visited);
     if (!candidate) continue;
-    try {
-      const page = await scrapePage(candidate.url, apiKey, 7_000);
-      pages.push(page);
-      visited.add(candidate.url);
-      current = page;
-      if (role === "checkout" || role === "conversion") break;
-    } catch {
-      continue;
-    }
+    candidates.push(candidate);
+    visited.add(candidate.url);
+    if (candidates.length >= limit - 1) break;
   }
-  return pages.slice(0, 8);
+
+  const settled = await Promise.allSettled(candidates.map((candidate) => scrapePage(candidate.url, apiKey, 6_500)));
+  pages.push(...settled.filter((item): item is PromiseFulfilledResult<CrawlPage> => item.status === "fulfilled").map((item) => item.value));
+  return selectRepresentativeResults(pages, homepage.url, limit);
 }
 
 export async function crawlWebsite(url: string, apiKey: string): Promise<CrawlPage[]> {
+  const rootUrl = new URL(normalizeAndValidateUrl(url)).origin;
   try {
-    const homepage = await scrapePage(url, apiKey, 8_000);
+    const homepage = await scrapePage(rootUrl, apiKey, 8_000);
     const model = classifyCommercialModel([homepage]);
     const mapResponse = await fetch(`${FIRECRAWL_BASE_URL}/map`, {
       method: "POST",
       headers: headers(apiKey),
       body: JSON.stringify({
-        url,
+        url: rootUrl,
         sitemap: "include",
         includeSubdomains: false,
         ignoreQueryParameters: true,
@@ -362,15 +400,15 @@ export async function crawlWebsite(url: string, apiKey: string): Promise<CrawlPa
     if (!mapResponse.ok) throw new Error(await readError(mapResponse));
     const mapped = (await mapResponse.json()) as FirecrawlMapResponse;
     if (!mapped.success) throw new Error(mapped.error || "The website map was unavailable.");
-    const pages = await crawlOneRepresentativeJourney(homepage, mapped.links || [], model, apiKey);
+    const pages = await crawlRepresentativePages(homepage, mapped.links || [], model, apiKey, 8);
     return pages;
   } catch (targetedError) {
     const recovered = await Promise.allSettled([
-      crawlWebsiteFallback(url, apiKey),
-      scrapePage(url, apiKey, 12_000).then((page) => [page]),
+      crawlWebsiteFallback(rootUrl, apiKey),
+      scrapePage(rootUrl, apiKey, 12_000).then((page) => [page]),
     ]);
     const fallback = recovered[0];
-    if (fallback.status === "fulfilled" && fallback.value.length) return fallback.value;
+    if (fallback.status === "fulfilled" && fallback.value.length) return selectRepresentativeResults(fallback.value, rootUrl, 8);
     const homepage = recovered[1];
     if (homepage.status === "fulfilled" && homepage.value.length) return homepage.value;
     if (fallback.status === "rejected") throw fallback.reason;
@@ -379,14 +417,14 @@ export async function crawlWebsite(url: string, apiKey: string): Promise<CrawlPa
 }
 
 /**
- * Uses a Dutch public web search to select at most one commercial page from at
- * most two distinct competitor domains, then scrapes only those selected pages.
+ * Uses a Dutch public web search to select up to two direct competitors and
+ * crawls a bounded representative page set for each accepted domain.
  */
 export async function discoverCompetitorPages(
   entity: ResolvedCompanyEntity,
   ownUrl: string,
   apiKey: string,
-): Promise<CrawlPage[]> {
+): Promise<CompetitorSiteCrawl[]> {
   const query = buildCompetitorSearchQuery(entity);
   const response = await fetch(`${FIRECRAWL_BASE_URL}/search`, {
     method: "POST",
@@ -431,15 +469,38 @@ export async function discoverCompetitorPages(
       seenOrigins.add(origin);
       return true;
     })
-    .slice(0, 2);
+    .slice(0, 4);
 
-  const settled = await Promise.allSettled(candidates.map((candidate) => scrapePage(candidate.url, apiKey)));
+  const settled = await Promise.allSettled(candidates.map(async (candidate): Promise<CompetitorSiteCrawl> => {
+    const origin = new URL(candidate.url).origin;
+    const pages = await crawlWebsite(origin, apiKey);
+    return { seedUrl: candidate.url, pages };
+  }));
   return settled
-    .filter((item): item is PromiseFulfilledResult<CrawlPage> => item.status === "fulfilled")
+    .filter((item): item is PromiseFulfilledResult<CompetitorSiteCrawl> => item.status === "fulfilled")
     .map((item) => item.value)
-    .filter((page) => competitorCandidateScore(entity, {
-      title: page.title,
-      description: `${page.description} ${page.markdown.slice(0, 1200)}`,
-      url: page.url,
-    }) >= 5);
+    .filter((site) => {
+      const aggregate = site.pages.map((page) => `${page.title} ${page.description} ${page.markdown.slice(0, 1200)}`).join(" ");
+      const model = classifyCommercialModel(site.pages);
+      const modelMatches = entity.businessModel === "retail-ecommerce"
+        ? model === "ecommerce" || model === "marketplace"
+        : entity.businessModel === "software-technology"
+          ? model === "software"
+          : entity.businessModel === "local-service" || entity.businessModel === "professional-service"
+            ? model === "service" || model === "booking"
+            : true;
+      const geographyTokens = entity.geography.toLowerCase() === "nederland" ? [] : entity.geography.toLowerCase().split(/\s+/).filter((token) => token.length >= 4);
+      const sameGeography = !geographyTokens.length || geographyTokens.some((token) => aggregate.toLowerCase().includes(token));
+      const target = entity.targetCustomer.toLowerCase();
+      const candidateBusiness = /\b(b2b|bedrijven|zakelijk|ondernemers|organisaties|professionals)\b/i.test(aggregate);
+      const candidateConsumer = /\b(b2c|particulieren|consumenten|woningeigenaren|gezinnen|thuis)\b/i.test(aggregate);
+      const differentTargetMarket = /\b(bedrijven|zakelijk|b2b)\b/i.test(target) && candidateConsumer && !candidateBusiness
+        || /\b(particulieren|consumenten|b2c)\b/i.test(target) && candidateBusiness && !candidateConsumer;
+      return site.pages.length > 0 && modelMatches && sameGeography && !differentTargetMarket && competitorCandidateScore(entity, {
+        title: site.pages[0]?.title,
+        description: aggregate,
+        url: site.seedUrl,
+      }) >= 5;
+    })
+    .slice(0, 2);
 }

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { analyzeCrawl, detectTrustSignals } from "../lib/analyzer";
-import { analyzeCompetitorPage, applyCompetitorAnalysis } from "../lib/competitors";
+import { analyzeCompetitorPage, analyzeCompetitorSite, applyCompetitorAnalysis } from "../lib/competitors";
 import { buildDeterministicEntityProfile, competitorCandidateScore } from "../lib/entity";
+import { selectRepresentativeResults } from "../lib/firecrawl";
 import { classifyCommercialModel, journeyRolesForModel } from "../lib/journey-model";
 import type { CrawlPage } from "../lib/types";
 
@@ -62,13 +63,17 @@ describe("weighted readiness", () => {
     expect(result.confidence).toBe("Medium");
   });
 
-  it("returns a cautious but complete report from one representative landing page", () => {
+  it("returns insufficient data from fewer than three useful pages", () => {
     const homepage = scoredSite()[0];
     const result = analyzeCrawl([homepage], "https://voorbeeld.nl/", 120);
-    expect(result.score).toEqual(expect.any(Number));
+    expect(result.score).toBeNull();
+    expect(result.overview.status).toBe("Insufficient data");
+    expect(result.readiness.status).toBe("insufficient-data");
+    expect(result.summary).toMatch(/only 1 useful page/i);
     expect(result.gaps).toHaveLength(3);
+    expect(result.gaps.every((gap) => gap.score === null)).toBe(true);
+    expect(result.gaps.every((gap) => gap.evidence.length > 0 && gap.nextAction.length > 0)).toBe(true);
     expect(result.gaps[2].title).toBe("Customer Journey Path");
-    expect(result.gaps[2].summary).toMatch(/could not be confirmed/i);
     expect(result.overview.estimatedClicks).toBeNull();
   });
 });
@@ -89,19 +94,23 @@ describe("trust-signal analysis", () => {
 });
 
 describe("lightweight competitor analysis", () => {
-  it("inspects one selected commercial page with the requested comparison metrics", () => {
-    const competitor = analyzeCompetitorPage(
-      page({
-        url: "https://concurrent.nl/diensten/warmtepompinstallatie",
-        title: "Warmtepompinstallatie Utrecht | Concurrent",
-        html: '<html><body><h1>Warmtepompinstallatie</h1><p>4.9 sterren. KIWA gecertificeerd. 10 jaar garantie.</p><a href="/contact">Vraag een offerte aan</a><form><input name="email"></form></body></html>',
-      }),
-      "Warmtepompinstallatie voor woningen",
-    );
+  it("uses the same three deterministic checks across representative competitor pages", () => {
+    const pages = scoredSite({ trustOnContact: true }).map((item) => ({ ...item, url: item.url.replace("voorbeeld.nl", "concurrent.nl"), links: item.links.map((link) => link.replace("voorbeeld.nl", "concurrent.nl")) }));
+    const competitor = analyzeCompetitorSite({ seedUrl: pages[0].url, pages }, "Warmtepompinstallatie voor woningen");
+    const direct = analyzeCrawl(pages, "https://concurrent.nl/", 0);
     expect(competitor.label).toBe("Likely public search competitor");
     expect(competitor.dedicatedServicePage).toBe(true);
+    expect(competitor.dataStatus).toBe("scored");
+    expect(competitor.pagesAnalyzed).toBe(3);
     expect(competitor.metrics.map((metric) => metric.label)).toEqual(["Offer Clarity", "CTA clarity", "Customer Journey Path"]);
     expect(competitor.findings.map((finding) => finding.id)).toEqual(["offer-clarity", "cta-clarity", "customer-journey-path"]);
+    expect(competitor.findings.map((finding) => finding.score)).toEqual(direct.gaps.map((finding) => finding.score));
+  });
+
+  it("marks a one-page competitor crawl as insufficient instead of claiming a full score", () => {
+    const competitor = analyzeCompetitorPage(scoredSite()[0], "Warmtepompinstallatie voor woningen");
+    expect(competitor.dataStatus).toBe("insufficient-data");
+    expect(competitor.findings.every((finding) => finding.score === null)).toBe(true);
   });
 
   it("adds competitor evidence only to findings that already exist", () => {
@@ -120,6 +129,14 @@ describe("lightweight competitor analysis", () => {
     expect(compared.competitors.competitors).toHaveLength(1);
     expect(compared.competitors.competitors[0].findings).toHaveLength(3);
     expect(compared.competitors.competitors[0].findings.every((finding) => finding.evidence.every((evidence) => evidence.source === "competitor"))).toBe(true);
+  });
+
+  it("keeps the main report when competitor discovery returns no accepted businesses", () => {
+    const result = analyzeCrawl(scoredSite({ trustOnContact: true }), "https://voorbeeld.nl/", 500);
+    const compared = applyCompetitorAnalysis(result, []);
+    expect(compared.score).toBe(result.score);
+    expect(compared.gaps).toEqual(result.gaps);
+    expect(compared.competitors.status).toBe("not-found");
   });
 });
 
@@ -175,6 +192,28 @@ describe("entity-first competitor discovery", () => {
 });
 
 describe("representative customer journeys", () => {
+  it("selects a diverse bounded page set without keeping many similar products", () => {
+    const pages = [
+      page({ url: "https://winkel.nl/", title: "Winkel", html: "<h1>Winkel</h1>" }),
+      page({ url: "https://winkel.nl/collecties/keuken", title: "Keuken", html: "<h1>Keuken</h1>" }),
+      page({ url: "https://winkel.nl/products/pan", title: "Pan", html: "<h1>Pan</h1><button>In winkelmand</button>" }),
+      page({ url: "https://winkel.nl/products/bord", title: "Bord", html: "<h1>Bord</h1><button>In winkelmand</button>" }),
+      page({ url: "https://winkel.nl/cart", title: "Winkelmand", html: "<h1>Winkelmand</h1>" }),
+      page({ url: "https://winkel.nl/checkout", title: "Afrekenen", html: "<h1>Afrekenen</h1>" }),
+      page({ url: "https://winkel.nl/retour", title: "Retourneren", html: "<h1>Retourneren</h1>" }),
+      page({ url: "https://winkel.nl/blog/zomer", title: "Zomerblog", html: "<h1>Zomerblog</h1>" }),
+    ];
+    const selected = selectRepresentativeResults(pages, "https://winkel.nl/", 8);
+    expect(selected[0].url).toBe("https://winkel.nl/");
+    expect(selected).toHaveLength(6);
+    expect(selected.filter((item) => /\/products\//.test(item.url))).toHaveLength(1);
+    expect(selected.map((item) => item.url)).toEqual(expect.arrayContaining([
+      "https://winkel.nl/collecties/keuken",
+      "https://winkel.nl/cart",
+      "https://winkel.nl/checkout",
+      "https://winkel.nl/retour",
+    ]));
+  });
   it("classifies the landing page before choosing a journey template", () => {
     const ecommerceHome = page({
       url: "https://winkel.nl/",
@@ -234,8 +273,9 @@ describe("representative customer journeys", () => {
     expect(result.journey.businessModels).toContain("Ecommerce");
     expect(result.journey.primaryConversionType).not.toBe("Lead form");
     expect(result.overview.estimatedClicks).toBeNull();
-    expect(result.readiness.categories.find((category) => category.id === "customer-journey-path")?.score).toBe(10);
-    expect(result.readiness.categories.find((category) => category.id === "cta-clarity")?.score).toBeGreaterThanOrEqual(72);
+    expect(result.readiness.status).toBe("insufficient-data");
+    expect(result.readiness.categories.find((category) => category.id === "customer-journey-path")?.score).toBeNull();
+    expect(result.readiness.categories.find((category) => category.id === "cta-clarity")?.score).toBeNull();
     expect(entity.businessModel).toBe("retail-ecommerce");
     expect(entity.industry).toBe("Home and lifestyle retail");
     expect(entity.offerings).toContain("woonaccessoires");

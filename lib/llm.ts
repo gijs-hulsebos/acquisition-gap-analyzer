@@ -6,7 +6,7 @@ export async function enhanceFindings(
   result: AnalysisResult,
   apiKey: string | undefined,
 ): Promise<AnalysisResult> {
-  if (!apiKey) return result;
+  if (!apiKey || result.readiness.status === "insufficient-data") return result;
 
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
