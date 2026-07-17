@@ -61,7 +61,7 @@ type FirecrawlMapResponse = {
 
 const FIRECRAWL_BASE_URL = "https://api.firecrawl.dev/v2";
 const POLL_INTERVAL_MS = 1100;
-const MAX_WAIT_MS = 32_000;
+const MAX_WAIT_MS = 15_000;
 
 function headers(apiKey: string) {
   return {
@@ -87,10 +87,10 @@ async function crawlWebsiteFallback(url: string, apiKey: string): Promise<CrawlP
       url,
       limit: 8,
       maxDiscoveryDepth: 2,
-      crawlEntireDomain: true,
+      crawlEntireDomain: false,
       allowExternalLinks: false,
       allowSubdomains: false,
-      sitemap: "include",
+      sitemap: "skip",
       ignoreQueryParameters: true,
       scrapeOptions: {
         formats: ["markdown", "html", "links"],
@@ -100,7 +100,7 @@ async function crawlWebsiteFallback(url: string, apiKey: string): Promise<CrawlP
         timeout: 20_000,
       },
     }),
-    signal: AbortSignal.timeout(25_000),
+    signal: AbortSignal.timeout(10_000),
   });
 
   if (!startResponse.ok) throw new Error(await readError(startResponse));
@@ -111,6 +111,7 @@ async function crawlWebsiteFallback(url: string, apiKey: string): Promise<CrawlP
   }
 
   const deadline = Date.now() + MAX_WAIT_MS;
+  let latestPages: CrawlPage[] = [];
   while (Date.now() < deadline) {
     const statusResponse = await fetch(`${FIRECRAWL_BASE_URL}/crawl/${started.id}`, {
       headers: headers(apiKey),
@@ -121,34 +122,35 @@ async function crawlWebsiteFallback(url: string, apiKey: string): Promise<CrawlP
     if (!statusResponse.ok) throw new Error(await readError(statusResponse));
     const result = (await statusResponse.json()) as FirecrawlStatusResponse;
 
+    latestPages = (result.data || [])
+      .map((document): CrawlPage | null => {
+        const pageUrl = document.metadata?.sourceURL || document.metadata?.url;
+        if (!pageUrl) return null;
+        return {
+          url: pageUrl,
+          title: document.metadata?.title?.trim() || "Untitled page",
+          description: document.metadata?.description?.trim() || "",
+          markdown: document.markdown || "",
+          html: document.html || "",
+          links: document.links || [],
+          statusCode: document.metadata?.statusCode || 200,
+        };
+      })
+      .filter((page): page is CrawlPage => Boolean(page));
+
     if (result.status === "failed" || result.status === "cancelled") {
       throw new Error(result.error || "The website crawl could not be completed.");
     }
 
     if (result.status === "completed") {
-      const pages = (result.data || [])
-        .map((document): CrawlPage | null => {
-          const pageUrl = document.metadata?.sourceURL || document.metadata?.url;
-          if (!pageUrl) return null;
-          return {
-            url: pageUrl,
-            title: document.metadata?.title?.trim() || "Untitled page",
-            description: document.metadata?.description?.trim() || "",
-            markdown: document.markdown || "",
-            html: document.html || "",
-            links: document.links || [],
-            statusCode: document.metadata?.statusCode || 200,
-          };
-        })
-        .filter((page): page is CrawlPage => Boolean(page));
-
-      if (!pages.length) throw new Error("The crawl completed but returned no readable pages.");
-      return pages;
+      if (!latestPages.length) throw new Error("The crawl completed but returned no readable pages.");
+      return latestPages;
     }
 
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
 
+  if (latestPages.length) return latestPages;
   throw new Error("The crawl took too long. Try the website again in a moment.");
 }
 
@@ -279,9 +281,9 @@ export async function crawlWebsite(url: string, apiKey: string): Promise<CrawlPa
         ignoreQueryParameters: true,
         limit: 200,
         location: { country: "NL", languages: ["nl-NL", "en-US"] },
-        timeout: 8_000,
+        timeout: 15_000,
       }),
-      signal: AbortSignal.timeout(9_000),
+      signal: AbortSignal.timeout(16_000),
     });
     if (!mapResponse.ok) throw new Error(await readError(mapResponse));
     const mapped = (await mapResponse.json()) as FirecrawlMapResponse;
@@ -293,8 +295,17 @@ export async function crawlWebsite(url: string, apiKey: string): Promise<CrawlPa
       .map((item) => item.value);
     if (!pages.length) throw new Error("No representative journey pages could be read.");
     return pages;
-  } catch {
-    return crawlWebsiteFallback(url, apiKey);
+  } catch (targetedError) {
+    const recovered = await Promise.allSettled([
+      crawlWebsiteFallback(url, apiKey),
+      scrapePage(url, apiKey, 12_000).then((page) => [page]),
+    ]);
+    const fallback = recovered[0];
+    if (fallback.status === "fulfilled" && fallback.value.length) return fallback.value;
+    const homepage = recovered[1];
+    if (homepage.status === "fulfilled" && homepage.value.length) return homepage.value;
+    if (fallback.status === "rejected") throw fallback.reason;
+    throw targetedError;
   }
 }
 
