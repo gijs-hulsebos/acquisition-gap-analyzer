@@ -222,8 +222,8 @@ function representativeKind(link: FirecrawlMapLink, baseUrl: string): JourneyRol
   if (/\/(checkout|afrekenen|kassa|payment|betalen)(\/|$)/i.test(path)) return "checkout";
   if (/\/(cart|basket|bag|winkelmand|mandje)(\/|$)/i.test(path)) return "cart";
   if (/\/(booking|boeken|afspraak|demo|aanvraag|application|apply|signup|register|trial)(\/|$)/i.test(path)) return "conversion";
-  if (/\/(products?|product|p|artikel|item)(\/|$)/i.test(path) || /\b(product detail|artikelnummer|in winkelmand|add to cart|sku)\b/i.test(text) || (PRICE_SIGNAL.test(text) && path.split("/").filter(Boolean).length >= 2)) return "product";
   if (/\/(collections?|collecties?|categories?|categorie|catalogus|shop|winkel|assortiment|search|zoeken?|zoekresultaten?)(\/|$)/i.test(path) || /\b(collectie|categorie|assortiment|shop all|bekijk alles|zoekresultaten)\b/i.test(text)) return "category";
+  if (/\/(products?|product|p|artikel|item)(\/|$)/i.test(path) || /\b(product detail|artikelnummer|in winkelmand|add to cart|sku)\b/i.test(text) || (PRICE_SIGNAL.test(text) && path.split("/").filter(Boolean).length >= 2)) return "product";
   if (/\/(diensten?|services?|oplossingen?|solutions?)(\/|$)/i.test(path)) return "service";
   if (/\/(pricing|prijzen|tarieven|abonnementen)(\/|$)/i.test(path)) return "pricing";
   return "other";
@@ -250,7 +250,8 @@ function representativeScore(link: FirecrawlMapLink, kind: JourneyRole) {
 function normalizedInternalLinks(page: CrawlPage, baseUrl: string) {
   const origin = new URL(baseUrl).origin;
   const htmlLinks = Array.from(page.html.matchAll(/href\s*=\s*["']([^"']+)["']/gi)).map((match) => match[1]);
-  return new Set([...page.links, ...htmlLinks].flatMap((raw) => {
+  const markdownLinks = Array.from(page.markdown.matchAll(/\[[^\]]+\]\(([^\s)]+)/g)).map((match) => match[1]);
+  return new Set([...page.links, ...htmlLinks, ...markdownLinks].flatMap((raw) => {
     try {
       const parsed = new URL(raw, page.url);
       if (parsed.origin !== origin) return [];
@@ -296,7 +297,7 @@ function chooseJourneyCandidate(
 ) {
   const linked = normalizedInternalLinks(currentPage, baseUrl);
   const candidates = (buckets.get(role) || []).filter((item) => !visited.has(item.url));
-  const explicit = candidates.find((item) => linked.has(item.url)) || candidates[0];
+  const explicit = candidates.find((item) => linked.has(item.url));
   if (explicit) return explicit;
   const direct = [...linked]
     .filter((url) => !visited.has(url) && !STATIC_ASSET.test(url))
@@ -324,7 +325,7 @@ function chooseJourneyCandidate(
 }
 
 function representativePlan(model: CommercialModel): JourneyRole[] {
-  if (model === "ecommerce") return ["category", "product", "cart", "checkout"];
+  if (model === "ecommerce") return ["category", "product"];
   if (model === "booking") return ["service", "service", "conversion", "pricing"];
   if (model === "software") return ["pricing", "service", "conversion"];
   if (model === "marketplace") return ["category", "product", "conversion", "pricing"];
@@ -476,25 +477,32 @@ export async function discoverCompetitorPages(
   apiKey: string,
 ): Promise<CompetitorDiscoveryResult> {
   const query = buildCompetitorSearchQuery(entity);
-  const response = await fetch(`${FIRECRAWL_BASE_URL}/search`, {
-    method: "POST",
-    headers: headers(apiKey),
-    body: JSON.stringify({
-      query,
-      limit: 12,
-      sources: ["web"],
-      country: "NL",
-      location: "Netherlands",
-      timeout: 4_500,
-      ignoreInvalidURLs: true,
-      excludeDomains: [new URL(ownUrl).hostname],
-    }),
-    signal: AbortSignal.timeout(5_500),
-  });
-
-  if (!response.ok) throw new Error(await readError(response));
-  const result = (await response.json()) as FirecrawlSearchResponse;
-  if (!result.success) throw new Error(result.error || "Competitor search was unavailable.");
+  const broadQuery = entity.businessModel === "retail-ecommerce"
+    ? `${entity.offerings.slice(0, 2).join(" ")} vergelijkbare Nederlandse winkels webshops -site:${entity.domain}`
+    : `${entity.industry} ${entity.offerings[0] || ""} concurrenten ${entity.geography} -site:${entity.domain}`;
+  const searches = await Promise.allSettled([query, broadQuery].map(async (searchQuery) => {
+    const response = await fetch(`${FIRECRAWL_BASE_URL}/search`, {
+      method: "POST",
+      headers: headers(apiKey),
+      body: JSON.stringify({
+        query: searchQuery,
+        limit: 12,
+        sources: ["web"],
+        country: "NL",
+        location: "Netherlands",
+        timeout: 4_500,
+        ignoreInvalidURLs: true,
+        excludeDomains: [new URL(ownUrl).hostname, entity.domain],
+      }),
+      signal: AbortSignal.timeout(5_500),
+    });
+    if (!response.ok) throw new Error(await readError(response));
+    const result = (await response.json()) as FirecrawlSearchResponse;
+    if (!result.success) throw new Error(result.error || "Competitor search was unavailable.");
+    return result.data?.web || [];
+  }));
+  const searchResults = searches.flatMap((item) => item.status === "fulfilled" ? item.value : []);
+  if (!searchResults.length && searches.every((item) => item.status === "rejected")) throw new Error("Competitor search was unavailable.");
 
   const ownOrigin = new URL(ownUrl).origin;
   const seenOrigins = new Set<string>();
@@ -503,7 +511,7 @@ export async function discoverCompetitorPages(
   const ownDomainKey = entity.domain.toLowerCase().replace(/^www\./, "").split(".").slice(0, -1).join("").replace(/[^a-z0-9]/g, "");
   const ranked: Array<{ candidate: FirecrawlSearchResult & { url: string }; score: number }> = [];
 
-  for (const candidate of (result.data?.web || []).filter((item): item is FirecrawlSearchResult & { url: string } => Boolean(item.url))) {
+  for (const candidate of searchResults.filter((item): item is FirecrawlSearchResult & { url: string } => Boolean(item.url))) {
     const name = candidate.title?.slice(0, 100) || candidate.url.slice(0, 100);
     let parsed: URL;
     try {
@@ -541,8 +549,8 @@ export async function discoverCompetitorPages(
   }
 
   ranked.sort((a, b) => b.score - a.score);
-  const candidates = ranked.slice(0, 2).map((item) => item.candidate);
-  for (const item of ranked.slice(2)) {
+  const candidates = ranked.slice(0, 3).map((item) => item.candidate);
+  for (const item of ranked.slice(3)) {
     rejected.push({ name: item.candidate.title || new URL(item.candidate.url).hostname, url: item.candidate.url, reason: "Lower-ranked matching result; only two competitors are included.", crawled: false });
   }
 
@@ -568,6 +576,9 @@ export async function discoverCompetitorPages(
     }
     const site = item.value;
       const aggregate = site.pages.map((page) => `${page.title} ${page.description} ${page.markdown.slice(0, 1200)}`).join(" ");
+      const crawledNameKey = (site.pages[0]?.title || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const crawledDomainKey = new URL(site.seedUrl).hostname.replace(/^www\./, "").split(".").slice(0, -1).join("").replace(/[^a-z0-9]/g, "");
+      const sameCompanyIdentity = (companyKey.length >= 6 && crawledNameKey.includes(companyKey)) || (ownDomainKey.length >= 5 && crawledDomainKey === ownDomainKey);
       const model = classifyCommercialModel(site.pages);
       const modelMatches = entity.businessModel === "retail-ecommerce"
         ? model === "ecommerce" || model === "marketplace"
@@ -588,11 +599,12 @@ export async function discoverCompetitorPages(
         description: aggregate,
         url: site.seedUrl,
       });
-    if (!site.pages.length || !modelMatches || !sameGeography || differentTargetMarket || finalScore < 5) {
-      rejected.push({ name: candidate.title || new URL(candidate.url).hostname, url: candidate.url, reason: !modelMatches ? "Crawled evidence indicates a different business model." : !sameGeography ? "Crawled evidence indicates a different geographic market." : differentTargetMarket ? "Crawled evidence indicates a different target customer." : "Crawled evidence did not confirm sufficient industry and offer overlap.", crawled: true });
+    if (!site.pages.length || sameCompanyIdentity || !modelMatches || !sameGeography || differentTargetMarket || finalScore < 5) {
+      rejected.push({ name: candidate.title || new URL(candidate.url).hostname, url: candidate.url, reason: sameCompanyIdentity ? "Crawled evidence identifies the submitted company or one of its regional domains." : !modelMatches ? "Crawled evidence indicates a different business model." : !sameGeography ? "Crawled evidence indicates a different geographic market." : differentTargetMarket ? "Crawled evidence indicates a different target customer." : "Crawled evidence did not confirm sufficient industry and offer overlap.", crawled: true });
       return;
     }
-    accepted.push(site);
+    if (accepted.length < 2) accepted.push(site);
+    else rejected.push({ name: candidate.title || new URL(candidate.url).hostname, url: candidate.url, reason: "Matching result not included because two stronger validated competitors were already accepted.", crawled: true });
   });
 
   return { accepted: accepted.slice(0, 2), rejected };

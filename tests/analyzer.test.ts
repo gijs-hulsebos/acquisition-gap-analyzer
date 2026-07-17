@@ -224,7 +224,7 @@ describe("entity-first competitor discovery", () => {
       "Insufficient industry, offer, geography or target-customer match.",
       "The accepted competitor domain could not be read within the crawl budget.",
     ]));
-    expect(discovery.rejected.find((item) => item.url === "https://onbereikbare-woonwinkel.nl/")?.crawled).toBe(true);
+    expect(discovery.rejected.some((item) => item.url === "https://onbereikbare-woonwinkel.nl/" && item.crawled)).toBe(true);
     const scrapedBodies = fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/scrape")).map(([, init]) => String(init?.body));
     expect(scrapedBodies).toHaveLength(2);
     expect(scrapedBodies.some((body) => body.includes("andere-woonwinkel.nl"))).toBe(true);
@@ -261,13 +261,11 @@ describe("representative customer journeys", () => {
     ];
     const selected = selectRepresentativeResults(pages, "https://winkel.nl/", 8);
     expect(selected[0].url).toBe("https://winkel.nl/");
-    expect(selected).toHaveLength(5);
+    expect(selected).toHaveLength(3);
     expect(selected.filter((item) => /\/products\//.test(item.url))).toHaveLength(1);
     expect(selected.every((item) => new URL(item.url).origin === "https://winkel.nl")).toBe(true);
     expect(selected.map((item) => item.url)).toEqual(expect.arrayContaining([
       "https://winkel.nl/collecties/keuken",
-      "https://winkel.nl/cart",
-      "https://winkel.nl/checkout",
     ]));
   });
   it("classifies the landing page before choosing a journey template", () => {
@@ -288,7 +286,89 @@ describe("representative customer journeys", () => {
     expect(journeyRolesForModel("service")).toEqual(["homepage", "service", "conversion"]);
   });
 
-  it("builds an ecommerce route through category, product, cart and checkout", () => {
+  it("uses rendered Markdown categories, search and product cards from a real ecommerce landing page", () => {
+    const pages = [
+      page({
+        url: "https://woonwinkel.nl/",
+        title: "Woonwinkel",
+        description: "Producten voor koken, tafelen, wonen en cadeaus.",
+        links: ["https://woonwinkel.nl/collectie/zomer", "https://woonwinkel.nl/nl/wonen/buitenkaars-123"],
+        html: '<html><body><h1>Woonwinkel</h1><input type="search" placeholder="Waar ben je naar op zoek?"></body></html>',
+        markdown: "# Zomer bij Woonwinkel\n\n[Ontdek ons assortiment](/collectie/zomer)\n\n## Categorieën\n[Zomer](/collectie/zomer) [Picknick](/collectie/picknick)\n\n## Producten\n[Buitenkaars](/nl/wonen/buitenkaars-123) 16,95\n[Dienblad](/nl/wonen/dienblad-456) 16,95",
+      }),
+      page({
+        url: "https://woonwinkel.nl/collectie/zomer",
+        title: "Zomercollectie",
+        links: ["https://woonwinkel.nl/nl/wonen/buitenkaars-123"],
+        html: "<html><body><h1>Zomercollectie</h1></body></html>",
+        markdown: "# Zomercollectie\nProducten voor buiten, picknick en tuin.\n[Buitenkaars](/nl/wonen/buitenkaars-123) 16,95",
+      }),
+      page({
+        url: "https://woonwinkel.nl/nl/wonen/buitenkaars-123",
+        title: "Buitenkaars",
+        html: "<html><body><h1>Buitenkaars</h1></body></html>",
+        markdown: "# Buitenkaars\nEen betonnen buitenkaars voor lange zomeravonden in de tuin. Prijs 16,95.\n[In winkelmand](/cart)",
+      }),
+    ];
+
+    const result = analyzeCrawl(pages, "https://woonwinkel.nl/", 300);
+    expect(result.journey.businessModels).toContain("Ecommerce");
+    expect(result.gaps.map((gap) => gap.id)).toEqual(["offer-clarity", "cta-clarity", "customer-journey-path"]);
+    expect(result.gaps[0].summary).toMatch(/browse and buy products/i);
+    expect(result.gaps[0].evidence[0].statement).toMatch(/product\/price signals/i);
+    expect(result.gaps[1].score).toBeGreaterThanOrEqual(80);
+    expect(result.journey.primary.status).toBe("complete");
+    expect(result.journey.primary.clicksToInterface).toBe(3);
+    expect(result.journey.primaryConversionType).toBe("Add to cart");
+  });
+
+  it("selects a linked category and product when Firecrawl returns rendered Markdown instead of anchors", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const requestUrl = String(input);
+      const body = JSON.parse(String(init?.body || "{}")) as { url?: string };
+      if (requestUrl.endsWith("/map")) {
+        return new Response(JSON.stringify({ success: true, links: [
+          { url: "https://woonwinkel.nl/collectie/zomer", title: "Zomercollectie" },
+          { url: "https://woonwinkel.nl/nl/wonen/buitenkaars-123", title: "Buitenkaars", description: "16,95" },
+        ] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (requestUrl.endsWith("/scrape") && body.url === "https://woonwinkel.nl") {
+        return new Response(JSON.stringify({ success: true, data: { html: '<input type="search" placeholder="Waar ben je naar op zoek?">', markdown: "# Zomer bij Woonwinkel\n[Ontdek assortiment](/collectie/zomer)\n[Buitenkaars](/nl/wonen/buitenkaars-123) 16,95\n[Dienblad](/nl/wonen/dienblad-456) 12,95", links: [], metadata: { sourceURL: "https://woonwinkel.nl/", title: "Woonwinkel", description: "Producten voor wonen en koken", statusCode: 200 } } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (requestUrl.endsWith("/scrape") && body.url === "https://woonwinkel.nl/collectie/zomer") {
+        return new Response(JSON.stringify({ success: true, data: { html: "", markdown: "# Zomercollectie\n[Buitenkaars](/nl/wonen/buitenkaars-123) 16,95", links: [], metadata: { sourceURL: body.url, title: "Zomercollectie", statusCode: 200 } } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (requestUrl.endsWith("/scrape") && body.url === "https://woonwinkel.nl/nl/wonen/buitenkaars-123") {
+        return new Response(JSON.stringify({ success: true, data: { html: "", markdown: "# Buitenkaars\nDuurzame buitenkaars voor lange zomeravonden.\n[In winkelmand](/cart)", links: [], metadata: { sourceURL: body.url, title: "Buitenkaars", statusCode: 200 } } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      throw new Error(`Unexpected request: ${requestUrl} ${body.url || ""}`);
+    });
+
+    const crawled = await crawlWebsite("https://woonwinkel.nl", "test-key", { homepageTimeout: 100, mapTimeout: 100, pageTimeout: 100 });
+    expect(crawled.map((item) => item.url)).toEqual([
+      "https://woonwinkel.nl/",
+      "https://woonwinkel.nl/collectie/zomer",
+      "https://woonwinkel.nl/nl/wonen/buitenkaars-123",
+    ]);
+    const result = analyzeCrawl(crawled, "https://woonwinkel.nl/", 200);
+    expect(result.journey.primary.status).toBe("complete");
+    expect(result.journey.primary.clicksToInterface).toBe(3);
+  });
+
+  it("never starts an ecommerce journey at cart or checkout", () => {
+    const pages = [
+      page({ url: "https://winkel.nl/", title: "Winkel", links: ["https://winkel.nl/cart", "https://winkel.nl/checkout"], html: '<h1>Winkel</h1><p>Online winkel met een uitgebreid assortiment producten voor wonen, koken en tafelen, met duidelijke informatie voor Nederlandse consumenten.</p><a href="/cart">Winkelmand</a><a href="/checkout">Afrekenen</a>' }),
+      page({ url: "https://winkel.nl/cart", title: "Winkelmand", links: ["https://winkel.nl/checkout"], html: '<h1>Winkelmand</h1><p>Je winkelmand is leeg. Voeg eerst een product toe vanuit een categorie of productpagina voordat je deze bestelling kunt afronden.</p><a href="/checkout">Afrekenen</a>' }),
+      page({ url: "https://winkel.nl/checkout", title: "Checkout", html: '<h1>Afrekenen</h1><p>Vul je gegevens pas in nadat je vanuit het assortiment een product hebt gekozen en bewust aan de winkelmand hebt toegevoegd.</p>' }),
+    ];
+    const result = analyzeCrawl(pages, "https://winkel.nl/", 200);
+    expect(result.journey.primary.status).toBe("incomplete");
+    expect(result.journey.primary.clicksToInterface).toBeNull();
+    expect(result.gaps[2].score).toBe(10);
+    expect(result.gaps[2].evidence[0].statement).not.toMatch(/cart → checkout/i);
+  });
+
+  it("builds a four-step ecommerce path through category, product and Add to cart", () => {
     const pages = [
       page({ url: "https://winkel.nl/", title: "Voorbeeldwinkel", links: ["https://winkel.nl/collecties/keuken"], html: '<html><body><h1>Wonen en keuken</h1><p>Shop onze collectie woonaccessoires en keukenproducten.</p><a href="/collecties/keuken">Bekijk collectie</a></body></html>' }),
       page({ url: "https://winkel.nl/collecties/keuken", title: "Keuken", links: ["https://winkel.nl/products/pan"], html: '<html><body><h1>Keuken</h1><p>Bekijk producten voor koken en tafelen.</p><a href="/products/pan">Bekijk pan</a></body></html>' }),
@@ -299,23 +379,17 @@ describe("representative customer journeys", () => {
     const result = analyzeCrawl(pages, "https://winkel.nl/", 500);
 
     expect(result.journey.businessModels).toContain("Ecommerce");
-    expect(result.journey.primaryConversionType).toBe("Checkout");
+    expect(result.journey.primaryConversionType).toBe("Add to cart");
     expect(result.journey.primary.status).toBe("complete");
     expect(result.journey.primary.clicksToInterface).toBe(4);
-    expect(result.journey.primary.stages.map((stage) => stage.pageType)).toEqual(["Homepage", "Category", "Product", "Cart", "Checkout"]);
+    expect(result.journey.primary.stages.map((stage) => stage.pageType)).toEqual(["Homepage", "Category", "Product", "Conversion"]);
     expect(result.journey.primary.additionalObservableActions).toBeNull();
     expect(result.gaps.map((gap) => gap.title)).toEqual(["Offer Clarity", "CTA Clarity", "Customer Journey Path"]);
     expect(result.gaps.map((gap) => `${gap.summary} ${gap.nextAction}`).join(" ")).not.toMatch(/service page|offerte|quote|contact path/i);
-    expect(result.gaps.find((gap) => gap.id === "cta-clarity")?.evidence.map((item) => item.pageLabel)).toEqual([
-      "product discovery",
-      "product selection",
-      "Add to cart",
-      "Cart",
-      "Checkout",
-    ]);
+    expect(result.gaps.find((gap) => gap.id === "cta-clarity")?.evidence.map((item) => item.pageLabel)).toEqual(["Product discovery", "Product selection", "Add to cart"]);
   });
 
-  it("never treats an empty cart or directly scraped checkout as a short completed journey", () => {
+  it("does not let a directly scraped empty cart shorten a valid Add to cart path", () => {
     const pages = [
       page({ url: "https://winkel.nl/", title: "Winkel", links: ["https://winkel.nl/collecties/keuken", "https://winkel.nl/cart"], html: '<h1>Wonen en keuken</h1><p>Ontdek ons uitgebreide assortiment voor koken, tafelen en wonen met duidelijke productinformatie.</p><a href="/collecties/keuken">Keuken</a><a href="/cart">Winkelmand</a>' }),
       page({ url: "https://winkel.nl/collecties/keuken", title: "Keuken", links: ["https://winkel.nl/products/pan"], html: '<h1>Keuken</h1><p>Bekijk pannen en keukenproducten voor dagelijks koken, uitgebreid beschreven voor consumenten.</p><a href="/products/pan">Pan</a>' }),
@@ -325,17 +399,14 @@ describe("representative customer journeys", () => {
     ];
     const result = analyzeCrawl(pages, "https://winkel.nl/", 300);
     const journeyFinding = result.gaps.find((gap) => gap.id === "customer-journey-path")!;
-    expect(result.journey.primary.status).toBe("incomplete");
-    expect(result.journey.primary.name).toBe("Incomplete journey");
-    expect(result.journey.primary.clicksToInterface).toBeNull();
-    expect(result.scoreLabel).toBe("Incomplete journey");
-    expect(result.overview.status).toBe("Needs attention");
-    expect(journeyFinding.score).toBe(10);
-    expect(journeyFinding.summary).toMatch(/incomplete journey/i);
-    expect(journeyFinding.evidence[0].statement).toMatch(/populated cart state/i);
+    expect(result.journey.primary.status).toBe("complete");
+    expect(result.journey.primary.clicksToInterface).toBe(4);
+    expect(result.journey.primaryConversionType).toBe("Add to cart");
+    expect(journeyFinding.evidence[0].statement).toMatch(/4 steps/i);
+    expect(result.journey.primary.stages.some((stage) => stage.pageType === "Cart" || stage.pageType === "Checkout")).toBe(false);
   });
 
-  it("counts opening the cart as a separate action when add-to-cart does not navigate there", () => {
+  it("counts landing, category, product and Add to cart as four steps", () => {
     const pages = [
       page({ url: "https://winkel.nl/", title: "Winkel", links: ["https://winkel.nl/collecties/keuken", "https://winkel.nl/cart"], html: '<h1>Wonen en keuken</h1><p>Ontdek producten voor thuis met snelle levering en duidelijke informatie voor consumenten.</p><a href="/collecties/keuken">Keuken</a><a href="/cart">Winkelmand</a>' }),
       page({ url: "https://winkel.nl/collecties/keuken", title: "Keuken", links: ["https://winkel.nl/products/pan"], html: '<h1>Keukenproducten</h1><p>Bekijk het complete assortiment voor dagelijks koken en tafelen in huis.</p><a href="/products/pan">Bekijk pan</a>' }),
@@ -345,16 +416,16 @@ describe("representative customer journeys", () => {
     ];
     const result = analyzeCrawl(pages, "https://winkel.nl/", 300);
     expect(result.journey.primary.status).toBe("complete");
-    expect(result.journey.primary.clicksToInterface).toBe(5);
-    expect(result.gaps.find((gap) => gap.id === "customer-journey-path")?.evidence[0].statement).toMatch(/5 required actions/i);
+    expect(result.journey.primary.clicksToInterface).toBe(4);
+    expect(result.gaps.find((gap) => gap.id === "customer-journey-path")?.evidence[0].statement).toMatch(/4 steps/i);
   });
 
-  it("explains offer clarity using what, who and why evidence", () => {
+  it("explains landing-page offer and conversion intent", () => {
     const result = analyzeCrawl(scoredSite({ trustOnContact: true }), "https://voorbeeld.nl/", 300);
     const offer = result.gaps.find((gap) => gap.id === "offer-clarity")!;
-    expect(offer.evidence).toHaveLength(3);
-    expect(offer.evidence.map((item) => item.pageLabel)).toEqual(["What is sold", "Who it is for", "Why it is relevant"]);
-    expect(offer.summary).toMatch(/what is sold|representative content/i);
+    expect(offer.evidence).toHaveLength(2);
+    expect(offer.evidence.map((item) => item.pageLabel)).toEqual(["Landing-page offer", "Conversion intent"]);
+    expect(offer.summary).toMatch(/landing page/i);
     expect(offer.nextAction.length).toBeGreaterThan(20);
   });
 

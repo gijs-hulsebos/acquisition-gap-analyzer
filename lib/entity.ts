@@ -205,10 +205,10 @@ export function competitorCandidateScore(entity: ResolvedCompanyEntity, candidat
   const offeringTokens = semanticTokens(entity.offerings.join(" "));
   const industryMatches = semanticOverlapCount(industryTokens, haystack);
   const offeringMatches = semanticOverlapCount(offeringTokens, haystack);
-  const retailCategoryMatch = entity.businessModel === "retail-ecommerce" && /\b(woonaccessoires|woonwinkel|interieur|keukenaccessoires|servies|cadeauwinkel|huishoudartikelen|tuinaccessoires|homeware|lifestyle)\b/i.test(haystack);
+  const retailCategoryMatch = entity.businessModel === "retail-ecommerce" && /\b(woonaccessoires|woonwinkel|interieur|decoratie|keukenaccessoires|koken|tafelen|servies|cadeaus?|cadeauwinkel|huishoudartikelen|huishouden|tuinaccessoires|homeware|lifestyle)\b/i.test(haystack);
   const geographyMatches = semanticTokens(entity.geography).filter((token) => haystack.includes(token)).length;
   const modelMatch = entity.businessModel === "retail-ecommerce"
-    ? /\b(webshop|winkel|collectie|producten|shop|assortiment|online bestellen)\b/i.test(haystack)
+    ? /\b(webshop|winkel|collectie|producten|shop|assortiment|online bestellen|online winkelen)\b/i.test(haystack)
     : entity.businessModel === "local-service"
       ? /\b(advies|installatie|onderhoud|specialist|service)\b/i.test(haystack)
       : true;

@@ -3,7 +3,7 @@ export type Severity = "Critical" | "High" | "Medium" | "Low";
 export type AnalysisMode = "live" | "fixture";
 export type BusinessModel = "Ecommerce" | "Lead generation" | "Appointment or booking" | "Software or subscription" | "Professional services" | "Local service business" | "Marketplace" | "Informational or non-commercial";
 export type ConversionType = "Checkout" | "Add to cart" | "Appointment booking" | "Demo request" | "Application" | "Lead form" | "Signup or subscription" | "No clear conversion";
-export type JourneyPageType = "Homepage" | "Category" | "Product" | "Service" | "Cart" | "Checkout" | "Booking" | "Application" | "Pricing" | "Other";
+export type JourneyPageType = "Homepage" | "Category" | "Product" | "Service" | "Cart" | "Checkout" | "Booking" | "Application" | "Pricing" | "Conversion" | "Other";
 
 export type JourneyStage = {
   order: number;

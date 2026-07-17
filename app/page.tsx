@@ -305,7 +305,7 @@ function MetricCard({ icon: Icon, value, label }: { icon: typeof Globe2; value: 
 }
 
 function PageComposition({ result }: { result: AnalysisResult }) {
-  const order: Array<AnalysisResult["pages"][number]["type"]> = ["Homepage", "Category", "Product", "Service", "Cart", "Checkout", "Booking", "Application", "Pricing", "Other"];
+  const order: Array<AnalysisResult["pages"][number]["type"]> = ["Homepage", "Category", "Product", "Service", "Cart", "Checkout", "Booking", "Application", "Pricing", "Conversion", "Other"];
   const types = order.filter((type) => result.pages.some((page) => page.type === type));
   const counts = types.map((type) => ({ type, count: result.pages.filter((page) => page.type === type).length }));
 
@@ -432,7 +432,7 @@ function ConversionReadiness({ result }: { result: AnalysisResult }) {
         <div className="readiness-title-line">
           <h2 id="readiness-heading">{result.scoreLabel}</h2>
         </div>
-        <p>{result.journey.businessModels.includes("Ecommerce") && result.journey.primary.status === "incomplete" ? "Purchase path not verified." : readinessExplanation(result.score)}</p>
+        <p>{result.journey.businessModels.includes("Ecommerce") ? result.journey.primary.status === "incomplete" ? "Add to cart path not verified." : "Clear path to Add to cart." : readinessExplanation(result.score)}</p>
       </div>
       <div className="readiness-context">
         <div><span><ShieldCheck size={13} /> {result.confidence} confidence</span><small>MVP heuristic · public website evidence</small></div>
@@ -449,7 +449,7 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
     return stages.find((stage) => stage.friction)?.order || stages[0]?.order || 1;
   });
   const activeStage = stages.find((stage) => stage.order === activeStageId) || stages[0];
-  const clickLabel = journey.status === "incomplete" ? "Incomplete journey" : journey.clicksToInterface === null ? "Path unconfirmed" : `${journey.clicksToInterface} required action${journey.clicksToInterface === 1 ? "" : "s"}`;
+  const clickLabel = journey.status === "incomplete" ? "Incomplete journey" : journey.clicksToInterface === null ? "Path unconfirmed" : `${journey.clicksToInterface} conversion step${journey.clicksToInterface === 1 ? "" : "s"}`;
   const journeySummary = journey.additionalObservableActions === null ? clickLabel : `${clickLabel} · ${journey.additionalObservableActions} additional action${journey.additionalObservableActions === 1 ? "" : "s"}`;
 
   return (
@@ -574,7 +574,7 @@ function TechnicalDetails({ result }: { result: AnalysisResult }) {
           <div className="score-method-rows">
             <div><span>Business model</span><small>First-party evidence</small><strong>{result.journey.businessModels[0]}</strong></div>
             <div><span>Primary conversion</span><small>Commercial destination</small><strong>{result.journey.primaryConversionType}</strong></div>
-            <div><span>Required actions</span><small>Before the interface</small><strong>{result.journey.primary.clicksToInterface ?? "Unconfirmed"}</strong></div>
+            <div><span>Conversion steps</span><small>Landing page to first conversion</small><strong>{result.journey.primary.clicksToInterface ?? "Unconfirmed"}</strong></div>
           </div>
           <p>{result.journey.primary.stages.map((stage) => stage.pageType).join(" → ") || "No complete public route was detected."}</p>
         </section>

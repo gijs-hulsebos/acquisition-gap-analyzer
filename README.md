@@ -22,9 +22,9 @@ The result is an MVP heuristic based on public website evidence. It is not conve
 
 | Category | Weight | What is measured |
 | --- | ---: | --- |
-| Offer Clarity | 35% | Whether a new visitor can identify what is sold, who it is for and why they should choose it from headings, supporting copy and representative offer pages |
-| CTA Clarity | 30% | Whether the representative journey exposes explicit, linked actions; ecommerce checks discovery, selection, Add to cart, Cart and Checkout |
-| Customer Journey Path | 35% | A fully evidenced route from arrival to the primary conversion interface, including state-changing actions such as add to cart |
+| Offer Clarity | 35% | Whether the landing page makes the sellable offer and shopping or conversion intent immediately understandable |
+| CTA Clarity | 30% | Whether the next action is explicit and supported by real links or controls; ecommerce checks discovery, optional product selection and Add to cart |
+| Customer Journey Path | 35% | A fully evidenced route from the landing page to the first meaningful conversion action, such as Add to cart |
 
 The score is calculated as:
 
@@ -41,10 +41,10 @@ The JSON response always contains the overview and the same three findings in th
 1. The server validates and normalizes the submitted URL.
 2. Firecrawl resolves the submitted domain and scrapes its homepage first.
 3. The landing-page evidence classifies the commercial model before any journey pages are selected: ecommerce, booking, software/subscription, marketplace, service or informational.
-4. A model-specific representative-page plan is loaded. Ecommerce selects one linked category/search page, one linked product, cart and checkout. Other models select representative offer, pricing and conversion pages.
+4. A model-specific representative-page plan is loaded. Ecommerce selects one linked category/search page and one linked product. Other models select representative offer, pricing and conversion pages.
 5. Firecrawl Map is used only as a same-domain lookup for those representative roles.
 6. At most one representative product page is retained, preventing a product catalogue from crowding out journey evidence. Up to eight useful pages are returned.
-7. Ecommerce verifies one complete route: homepage → category/search → product → add to cart → cart → checkout. Every link or button must be present, a directly requested empty cart is never treated as converted state, and missing proof produces `Incomplete journey`.
+7. Ecommerce verifies the shortest route from the landing page to Add to cart. A direct landing-page product card can produce `Homepage → product → Add to cart` (3 steps); a category route produces `Homepage → category → product → Add to cart` (4 steps). A listing with its own Add to cart control can also produce 3 steps. Direct cart or checkout URLs never count as a journey.
 8. The deterministic layer scores Offer Clarity, CTA Clarity and Customer Journey Path and emits the stable JSON report contract.
 9. The company entity is resolved from first-party evidence into business type, primary offer, geography and target customer.
 10. Firecrawl Search uses that resolved market profile instead of raw keywords. Same-company regional sites, directories, editorial/review results, incompatible industries, different country/local markets and unrelated offers are rejected before crawling.
@@ -62,7 +62,7 @@ The current MVP:
 - Analyzes at most eight representative journey pages after mapping the domain.
 - Cannot confirm a conversion route that passes through pages outside the selected page set.
 - Never places an order, creates an account, books an appointment or submits a form.
-- Because no product is actually added, ecommerce checkout is only marked complete when public HTML exposes every required action and a non-empty representative cart state; otherwise the result is explicitly incomplete.
+- The analyzer verifies visible links and Add to cart controls but does not execute the purchase. If it cannot verify a linked discovery path and Add to cart action, the journey is explicitly incomplete.
 - May not observe personalized, logged-in, payment or JavaScript-only steps.
 - Uses HTML/text heuristics rather than real visitor behaviour or conversion analytics.
 - Resolves and filters competitor candidates more strictly, but still labels them `Likely public search competitors`; public evidence cannot confirm that they are direct commercial competitors.
