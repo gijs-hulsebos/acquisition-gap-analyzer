@@ -18,7 +18,7 @@ import { classifyCommercialModel, publicBusinessModels } from "./journey-model";
 import type { CommercialModel } from "./journey-model";
 
 type Clickable = { text: string; href: string | null };
-type FormFacts = { fieldCount: number; requiredCount: number };
+type FormFacts = { fieldCount: number; requiredCount: number; purpose: "conversion" | "search" | "newsletter" | "login" | "utility"; isConversion: boolean };
 type PageFacts = CrawlPage & {
   normalizedUrl: string;
   clickables: Clickable[];
@@ -132,15 +132,27 @@ function extractClickables(html: string): Clickable[] {
 
 function extractForms(html: string): FormFacts[] {
   const forms: FormFacts[] = [];
-  const formPattern = /<form\b[^>]*>([\s\S]*?)<\/form>/gi;
+  const formPattern = /<form\b([^>]*)>([\s\S]*?)<\/form>/gi;
   let formMatch: RegExpExecArray | null;
 
   while ((formMatch = formPattern.exec(html))) {
-    const controls = formMatch[1].match(/<(input|textarea|select)\b[^>]*>/gi) || [];
+    const markup = formMatch[2];
+    const controls = markup.match(/<(input|textarea|select)\b[^>]*>/gi) || [];
     const usable = controls.filter((control) => !/type\s*=\s*["'](?:hidden|submit|button|reset)["']/i.test(control));
+    const signature = cleanText(`${formMatch[1]} ${markup} ${controls.join(" ")}`).toLowerCase();
+    const isSearch = /\b(search|zoeken?|zoekterm|query|site-search|searchbox)\b/i.test(signature);
+    const isNewsletter = /\b(newsletter|nieuwsbrief|mailinglist|mailing list|subscribe)\b/i.test(signature) && !/\b(demo|trial|account|signup|registreer)\b/i.test(signature);
+    const isLogin = /\b(login|log in|inloggen|wachtwoord|password|forgot-password)\b/i.test(signature);
+    const isUtility = /\b(filter|sorteren|sort by|coupon|kortingscode|store locator|postcode check)\b/i.test(signature);
+    const hasLeadFields = /\b(name|naam|email|e-mail)\b/i.test(signature) && /\b(phone|telefoon|message|bericht|company|bedrijf|address|adres)\b/i.test(signature);
+    const hasConversionLanguage = /\b(offerte|prijsopgave|aanvraag|contact|adviesgesprek|afspraak|boeking|booking|reserveer|demo|trial|registreer|signup|bestelling plaatsen|place order)\b/i.test(signature);
+    const purpose = isSearch ? "search" : isNewsletter ? "newsletter" : isLogin ? "login" : isUtility ? "utility" : "conversion";
+    const isConversion = purpose === "conversion" && (hasConversionLanguage || hasLeadFields);
     forms.push({
       fieldCount: usable.length,
       requiredCount: usable.filter((control) => /\brequired\b|aria-required\s*=\s*["']true["']/i.test(control)).length,
+      purpose,
+      isConversion,
     });
   }
 
@@ -206,7 +218,7 @@ function findHomepage(pages: PageFacts[], analyzedUrl: string) {
 }
 
 function isContactPage(page: PageFacts) {
-  return CONTACT_PATH.test(new URL(page.normalizedUrl).pathname) || page.forms.length > 0;
+  return CONTACT_PATH.test(new URL(page.normalizedUrl).pathname) || page.forms.some((form) => form.isConversion);
 }
 
 function isSpecificServicePage(page: PageFacts, serviceOverviewLinks: Set<string>) {
@@ -315,7 +327,7 @@ function conversionTypeFor(page: PageFacts, type: JourneyPageType): ConversionTy
   if (type === "Application" || APPLICATION_ACTION.test(`${page.title} ${page.h1}`)) return "Application";
   if (type === "Quote" || QUOTE_ACTION.test(`${page.title} ${page.h1}`)) return "Quote request";
   if (SIGNUP_ACTION.test(`${page.title} ${page.h1} ${clickText}`)) return "Signup or subscription";
-  if (page.forms.length) return type === "Contact" ? "Lead form" : "Lead form";
+  if (page.forms.some((form) => form.isConversion)) return "Lead form";
   if (type === "Contact") return "Contact";
   return "No clear conversion";
 }
@@ -383,7 +395,7 @@ function buildJourneyAnalysis(pages: PageFacts[], homepage: PageFacts, primarySe
   const targets = new Set(targetPages.map((item) => item.page.normalizedUrl));
   const edges = journeyEdges(pages, homepage);
   const discoveredRoute = targets.size ? shortestJourneyRoute(homepage, targets, edges) : null;
-  const route = discoveredRoute && (discoveredRoute.length > 1 || homepage.forms.length > 0) ? discoveredRoute : null;
+  const route = discoveredRoute && (discoveredRoute.length > 1 || homepage.forms.some((form) => form.isConversion)) ? discoveredRoute : null;
   const pageMap = new Map(pages.map((page) => [page.normalizedUrl, page]));
   const destination = route ? pageMap.get(route[route.length - 1]) || null : null;
   const stages: JourneyStage[] = (route || [homepage.normalizedUrl]).map((url, index, all) => {
@@ -404,7 +416,7 @@ function buildJourneyAnalysis(pages: PageFacts[], homepage: PageFacts, primarySe
       friction: page.statusCode >= 400 ? `Page returned HTTP ${page.statusCode}.` : generic ? `The route uses the generic CTA “${edge?.ctaText}”.` : null,
     };
   });
-  const destinationForm = destination?.forms[0];
+  const destinationForm = destination?.forms.find((form) => form.isConversion);
   const additionalObservableActions = destinationForm
     ? destinationForm.requiredCount + 1
     : primaryConversionType === "Add to cart" ? 1 : null;
@@ -480,7 +492,7 @@ function offerCategory(homepage: PageFacts, pages: PageFacts[], primaryService: 
 }
 
 function ctaCategory(homepage: PageFacts, pages: PageFacts[], commercialModel: CommercialModel) {
-  const ecommerceCta = /\b(shop( nu)?|bekijk (de )?collectie|producten bekijken|bestel( nu)?|naar de winkel|ontdek de collectie)\b/i;
+  const ecommerceCta = /\b(shop( nu)?|bekijk (de )?(collectie|producten|assortiment)|producten bekijken|bestel( nu)?|naar de winkel|ontdek (de|ons|het) (collectie|assortiment)|alle categorie[eë]n|bekijk alles)\b/i;
   const clearPattern = commercialModel === "ecommerce" || commercialModel === "marketplace" ? new RegExp(`${CLEAR_CTA.source}|${ecommerceCta.source}`, "i") : CLEAR_CTA;
   const relevant = homepage.clickables.filter((item) => clearPattern.test(item.text) || GENERIC_CTA.test(item.text));
   const clear = relevant.filter((item) => clearPattern.test(item.text));
@@ -581,7 +593,7 @@ function conversionCategory(homepage: PageFacts, pages: PageFacts[], path: strin
 }
 
 function formCategory(homepage: PageFacts, pages: PageFacts[], destination: PageFacts | null) {
-  const forms = pages.flatMap((page) => page.forms.map((form) => ({ page, form })));
+  const forms = pages.flatMap((page) => page.forms.filter((form) => form.isConversion).map((form) => ({ page, form })));
   if (!forms.length) {
     return category(
       "form-friction",
@@ -736,7 +748,7 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
   const journey = buildJourneyAnalysis(pages, homepage, primaryService, commercialModel);
   const fallbackPath = shortestConversionPath(pages, homepage);
   const detectedPath = journey.primary.shortestRoute.length ? journey.primary.shortestRoute : fallbackPath;
-  const path = detectedPath && (detectedPath.length > 1 || homepage.forms.length > 0) ? detectedPath : null;
+  const path = detectedPath && (detectedPath.length > 1 || homepage.forms.some((form) => form.isConversion)) ? detectedPath : null;
   const destination = path ? pages.find((page) => page.normalizedUrl === path[path.length - 1]) || null : null;
 
   const categories = [

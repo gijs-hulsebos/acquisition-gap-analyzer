@@ -7,7 +7,7 @@ export type SearchCandidate = {
 };
 
 const INDUSTRIES: Array<{ industry: string; pattern: RegExp }> = [
-  { industry: "Home and lifestyle retail", pattern: /\b(woonaccessoires|tafelen|keukenaccessoires|cadeauwinkel|huishoudartikelen|interieurwinkel|homeware|lifestyle winkel|webshop|winkelmand)\b/i },
+  { industry: "Home and lifestyle retail", pattern: /\b(woonaccessoires|wonen|tafelen|koken|keukenaccessoires|cadeauwinkel|cadeaus|huishoudartikelen|interieurwinkel|homeware|lifestyle winkel|tuinaccessoires|opbergen|webshop|winkelmand|assortiment)\b/i },
   { industry: "HVAC and climate installation", pattern: /\b(warmtepomp|airco|klimaattechniek|cv[- ]?ketel|verwarming|ventilatie|installatietechniek)\b/i },
   { industry: "Fire safety services", pattern: /\b(brandveilig|brandbeveilig|brandmeld|blusmiddelen|sprinkler|brandpreventie)\b/i },
   { industry: "Construction and renovation", pattern: /\b(aannemer|bouwbedrijf|renovatie|verbouwing|nieuwbouw|dakwerk|timmerwerk)\b/i },
@@ -43,12 +43,20 @@ function semanticTokens(value: string) {
   ));
 }
 
+function semanticOverlapCount(needles: string[], haystack: string) {
+  const candidateTokens = semanticTokens(haystack);
+  return needles.filter((needle) => candidateTokens.some((candidate) =>
+    candidate.includes(needle) || needle.includes(candidate) || (needle.length >= 7 && candidate.length >= 7 && needle.slice(0, 7) === candidate.slice(0, 7)),
+  )).length;
+}
+
 function pageEvidence(pages: CrawlPage[]) {
-  return pages.slice(0, 8).map((page) => compact(`${page.title}. ${page.description}. ${page.markdown.slice(0, 900)}`)).join("\n").slice(0, 7000);
+  return pages.slice(0, 8).map((page) => compact(`${page.title}. ${page.description}. ${page.markdown.slice(0, 1400)} ${page.html.slice(0, 1200)}`)).join("\n").slice(0, 9000);
 }
 
 function inferBusinessModel(text: string): ResolvedCompanyEntity["businessModel"] {
-  if (/\b(webshop|winkelmand|producten|collectie|shop online|bestellen|voorraad|filialen|winkels)\b/i.test(text)) return "retail-ecommerce";
+  const prices = text.match(/(?:€|eur\s*)\s*\d{1,5}(?:[.,]\d{2})?|\b\d{1,4}[,.]\d{2}\b/gi) || [];
+  if (/\b(webshop|winkelmand|producten|collectie|assortiment|alle categorie[eë]n|shop online|bestellen|voorraad|filialen|winkels)\b/i.test(text) || prices.length >= 2 || /schema\.org\/Product|product-card|product-grid/i.test(text)) return "retail-ecommerce";
   if (/\b(saas|software|platform|cloud|abonnement)\b/i.test(text)) return "software-technology";
   if (/\b(fabrikant|producent|groothandel|distributeur|dealer netwerk)\b/i.test(text)) return "manufacturing-wholesale";
   if (/\b(hotel|restaurant|catering|vakantie|overnachting)\b/i.test(text)) return "hospitality";
@@ -57,8 +65,8 @@ function inferBusinessModel(text: string): ResolvedCompanyEntity["businessModel"
   return "other";
 }
 
-function fallbackIndustry(text: string, primaryService: string) {
-  return INDUSTRIES.find((item) => item.pattern.test(text))?.industry || compact(primaryService).slice(0, 90) || "Other business services";
+function fallbackIndustry(text: string, primaryService: string, businessModel: ResolvedCompanyEntity["businessModel"]) {
+  return INDUSTRIES.find((item) => item.pattern.test(text))?.industry || (businessModel === "retail-ecommerce" ? "Retail and ecommerce" : compact(primaryService).slice(0, 90)) || "Other business services";
 }
 
 function offeringCandidates(result: AnalysisResult, pages: CrawlPage[]) {
@@ -69,17 +77,26 @@ function offeringCandidates(result: AnalysisResult, pages: CrawlPage[]) {
     .map(compact)
     .filter((value) => value.length >= 4 && value.length <= 100)
     .filter((value) => !/^home(page)?$/i.test(value));
-  return Array.from(new Set(values)).slice(0, 5);
+  const evidence = pageEvidence(pages);
+  const retailCategories = [
+    [/\b(woonaccessoires|interieur|wonen|homeware)\b/i, "woonaccessoires"],
+    [/\b(keukenaccessoires|koken|tafelen|servies)\b/i, "keukenaccessoires en servies"],
+    [/\b(cadeaus?|gift)\b/i, "cadeaus"],
+    [/\b(tuin|outdoor|buiten)\b/i, "tuin en buiten"],
+    [/\b(huishoud|opbergen|bewaren)\b/i, "huishoudproducten"],
+  ].filter(([pattern]) => (pattern as RegExp).test(evidence)).map(([, label]) => label as string);
+  return Array.from(new Set(result.journey.businessModels.includes("Ecommerce") ? [...retailCategories, ...values] : values)).slice(0, 5);
 }
 
 export function buildDeterministicEntityProfile(result: AnalysisResult, pages: CrawlPage[]): ResolvedCompanyEntity {
   const evidence = pageEvidence(pages);
   const combined = `${result.companyName}\n${result.primaryService}\n${evidence}`;
+  const businessModel = result.journey.businessModels.includes("Ecommerce") ? "retail-ecommerce" : inferBusinessModel(combined);
   return {
     companyName: result.companyName,
     domain: new URL(result.url).hostname.replace(/^www\./, ""),
-    industry: fallbackIndustry(combined, result.primaryService),
-    businessModel: inferBusinessModel(combined),
+    industry: fallbackIndustry(combined, result.primaryService, businessModel),
+    businessModel,
     offerings: offeringCandidates(result, pages),
     geography: result.market.geography,
     targetCustomer: result.market.targetCustomer,
@@ -152,13 +169,17 @@ export async function resolveCompanyEntity(
     if (!content) return fallback;
     const resolved = JSON.parse(content) as Omit<ResolvedCompanyEntity, "domain" | "confidence" | "method">;
     if (!resolved.industry?.trim() || !resolved.offerings?.length) return fallback;
+    const resolvedIndustry = compact(resolved.industry).slice(0, 100);
+    const industryLooksLikeCompanyName = resolvedIndustry.toLowerCase().replace(/[^a-z0-9]/g, "") === fallback.companyName.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const preserveRetailModel = fallback.businessModel === "retail-ecommerce" && resolved.businessModel === "other";
     return {
       ...fallback,
       ...resolved,
       companyName: resolved.companyName.trim() || fallback.companyName,
       domain: fallback.domain,
-      industry: compact(resolved.industry).slice(0, 100),
-      offerings: resolved.offerings.map(compact).filter(Boolean).slice(0, 5),
+      industry: industryLooksLikeCompanyName ? fallback.industry : resolvedIndustry,
+      businessModel: preserveRetailModel ? fallback.businessModel : resolved.businessModel,
+      offerings: Array.from(new Set([...(preserveRetailModel ? fallback.offerings : []), ...resolved.offerings.map(compact).filter(Boolean)])).slice(0, 5),
       geography: compact(resolved.geography) || fallback.geography,
       targetCustomer: compact(resolved.targetCustomer) || fallback.targetCustomer,
       confidence: "High",
@@ -170,26 +191,30 @@ export async function resolveCompanyEntity(
 }
 
 export function buildCompetitorSearchQuery(entity: ResolvedCompanyEntity) {
-  const model = entity.businessModel === "retail-ecommerce" ? "winkels webshop" : entity.businessModel === "local-service" ? "bedrijven specialist" : "bedrijven";
+  if (entity.businessModel === "retail-ecommerce") {
+    return compact(`${entity.offerings.slice(0, 3).join(" ")} woonwinkel cadeauwinkel webshop Nederland`);
+  }
+  const model = entity.businessModel === "local-service" ? "bedrijven specialist" : "bedrijven";
   const offering = entity.offerings.slice(0, 2).join(" ");
-  return compact(`\"${entity.industry}\" ${offering} ${entity.geography} ${entity.targetCustomer} ${model}`);
+  return compact(`${entity.industry} ${offering} ${entity.geography} ${entity.targetCustomer} ${model}`);
 }
 
 export function competitorCandidateScore(entity: ResolvedCompanyEntity, candidate: SearchCandidate) {
   const haystack = `${candidate.title || ""} ${candidate.description || ""} ${candidate.url}`.toLowerCase();
   const industryTokens = semanticTokens(entity.industry);
   const offeringTokens = semanticTokens(entity.offerings.join(" "));
-  const industryMatches = industryTokens.filter((token) => haystack.includes(token)).length;
-  const offeringMatches = offeringTokens.filter((token) => haystack.includes(token)).length;
+  const industryMatches = semanticOverlapCount(industryTokens, haystack);
+  const offeringMatches = semanticOverlapCount(offeringTokens, haystack);
+  const retailCategoryMatch = entity.businessModel === "retail-ecommerce" && /\b(woonaccessoires|woonwinkel|interieur|keukenaccessoires|servies|cadeauwinkel|huishoudartikelen|tuinaccessoires|homeware|lifestyle)\b/i.test(haystack);
   const geographyMatches = semanticTokens(entity.geography).filter((token) => haystack.includes(token)).length;
   const modelMatch = entity.businessModel === "retail-ecommerce"
-    ? /\b(webshop|winkel|collectie|producten|shop)\b/i.test(haystack)
+    ? /\b(webshop|winkel|collectie|producten|shop|assortiment|online bestellen)\b/i.test(haystack)
     : entity.businessModel === "local-service"
       ? /\b(offerte|advies|installatie|onderhoud|specialist|service)\b/i.test(haystack)
       : true;
   const path = new URL(candidate.url).pathname;
   const commercialPath = path !== "/" && /\/(diensten?|services?|oplossingen?|producten?|collectie|aanbod|offerte|shop)\b/i.test(path);
-  const semanticMatch = industryMatches >= 1 || offeringMatches >= 2;
+  const semanticMatch = entity.businessModel === "retail-ecommerce" ? retailCategoryMatch || industryMatches >= 1 || offeringMatches >= 1 : industryMatches >= 1 || offeringMatches >= 2;
   if (!semanticMatch || !modelMatch) return -100;
-  return industryMatches * 5 + offeringMatches * 3 + geographyMatches * 2 + (commercialPath ? 3 : 0);
+  return industryMatches * 5 + offeringMatches * 3 + geographyMatches * 2 + (commercialPath ? 3 : 0) + (modelMatch ? 3 : 0) + (retailCategoryMatch ? 4 : 0);
 }

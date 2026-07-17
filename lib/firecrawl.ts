@@ -192,6 +192,8 @@ async function scrapePage(url: string, apiKey: string, timeout = 8_000): Promise
 }
 
 const STATIC_ASSET = /\.(?:jpg|jpeg|png|gif|webp|svg|pdf|xml|json|css|js|zip)(?:$|\?)/i;
+const UTILITY_COMMERCE_PATH = /\/(?:klantenservice|customer-service|service|contact|over-ons|about|winkels?|stores?|blog|nieuws|news|inspiratie|inspiration|account|login|privacy|voorwaarden|terms|zoeken?|search)(?:\/|$)/i;
+const PRICE_SIGNAL = /(?:€|eur\s*)\s*\d{1,5}(?:[.,]\d{2})?|\b\d{1,4}[,.]\d{2}\b/i;
 
 function representativeKind(link: FirecrawlMapLink, baseUrl: string): JourneyRole {
   const parsed = new URL(link.url || baseUrl, baseUrl);
@@ -201,8 +203,8 @@ function representativeKind(link: FirecrawlMapLink, baseUrl: string): JourneyRol
   if (/\/(checkout|afrekenen|kassa|payment|betalen)(\/|$)/i.test(path)) return "checkout";
   if (/\/(cart|basket|bag|winkelmand|mandje)(\/|$)/i.test(path)) return "cart";
   if (/\/(contact|offerte|quote|booking|boeken|afspraak|demo|aanvraag|application|apply|signup|register|trial)(\/|$)/i.test(path)) return "conversion";
-  if (/\/(products?|product|p)(\/|$)/i.test(path) || /\b(product detail|artikelnummer|in winkelmand|add to cart)\b/i.test(text)) return "product";
-  if (/\/(collections?|collecties?|categories?|categorie|catalogus|shop|winkel)(\/|$)/i.test(path)) return "category";
+  if (/\/(products?|product|p|artikel|item)(\/|$)/i.test(path) || /\b(product detail|artikelnummer|in winkelmand|add to cart|sku)\b/i.test(text) || (PRICE_SIGNAL.test(text) && path.split("/").filter(Boolean).length >= 2)) return "product";
+  if (/\/(collections?|collecties?|categories?|categorie|catalogus|shop|winkel|assortiment)(\/|$)/i.test(path) || /\b(collectie|categorie|assortiment|shop all|bekijk alles)\b/i.test(text)) return "category";
   if (/\/(diensten?|services?|oplossingen?|solutions?)(\/|$)/i.test(path)) return "service";
   if (/\/(pricing|prijzen|tarieven|abonnementen)(\/|$)/i.test(path)) return "pricing";
   if (/\/(delivery|shipping|bezorg|retour|returns?|garantie|guarantee|faq|veelgestelde-vragen|keurmerken?)(\/|$)/i.test(path)) return "trust";
@@ -275,9 +277,40 @@ function chooseJourneyCandidate(
   baseUrl: string,
   visited: Set<string>,
 ) {
-  const candidates = (buckets.get(role) || []).filter((item) => !visited.has(item.url));
   const linked = normalizedInternalLinks(currentPage, baseUrl);
-  return candidates.find((item) => linked.has(item.url)) || candidates[0] || null;
+  const candidates = (buckets.get(role) || []).filter((item) => !visited.has(item.url));
+  const explicit = candidates.find((item) => linked.has(item.url)) || candidates[0];
+  if (explicit) return explicit;
+  const direct = [...linked]
+    .filter((url) => !visited.has(url) && !STATIC_ASSET.test(url))
+    .map((url) => ({ url, title: "", description: "" }))
+    .find((item) => representativeKind(item, baseUrl) === role);
+  if (direct) return direct;
+  if (role !== "category" && role !== "product") return null;
+
+  const currentDepth = new URL(currentPage.url).pathname.split("/").filter(Boolean).length;
+  const fallbacks = (buckets.get("other") || [])
+    .filter((item) => !visited.has(item.url) && !UTILITY_COMMERCE_PATH.test(new URL(item.url).pathname))
+    .map((item) => {
+      const path = new URL(item.url).pathname;
+      const depth = path.split("/").filter(Boolean).length;
+      const text = `${item.title || ""} ${item.description || ""} ${path}`;
+      const linkedScore = linked.has(item.url) ? 30 : 0;
+      const roleScore = role === "product"
+        ? (PRICE_SIGNAL.test(text) ? 25 : 0) + (/\b(product|artikel|sku|bestel)\b/i.test(text) ? 16 : 0) + (depth > currentDepth ? 8 : 0)
+        : (/\b(categorie|collectie|assortiment|wonen|keuken|tuin|kleding|diensten|oplossingen)\b/i.test(text) ? 18 : 0) + (depth >= 1 && depth <= currentDepth + 2 ? 8 : 0);
+      return { item, score: linkedScore + roleScore - depth };
+    })
+    .filter(({ score }) => score >= (role === "product" ? 20 : 10))
+    .sort((a, b) => b.score - a.score);
+  return fallbacks[0]?.item || null;
+}
+
+function hasHomepageProductGrid(page: CrawlPage) {
+  const content = `${page.markdown} ${page.html}`;
+  const prices = content.match(/(?:€|eur\s*)\s*\d{1,5}(?:[.,]\d{2})?|\b\d{1,4}[,.]\d{2}\b/gi) || [];
+  const productMarkup = content.match(/(?:schema\.org\/Product|"@type"\s*:\s*"Product"|product-card|product-grid|product-list)/gi) || [];
+  return prices.length >= 2 || productMarkup.length >= 2;
 }
 
 async function crawlOneRepresentativeJourney(
@@ -289,7 +322,7 @@ async function crawlOneRepresentativeJourney(
   const pages = [homepage];
   const visited = new Set([normalizeAndValidateUrl(homepage.url)]);
   const buckets = journeyBuckets(homepage.url, mappedLinks);
-  const roles = journeyRolesForModel(model).filter((role) => role !== "homepage");
+  const roles = journeyRolesForModel(model).filter((role) => role !== "homepage" && !(model === "ecommerce" && role === "category" && hasHomepageProductGrid(homepage)));
   let current = homepage;
 
   for (const role of roles) {

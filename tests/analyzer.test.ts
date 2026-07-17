@@ -142,6 +142,16 @@ describe("entity-first competitor discovery", () => {
 
     expect(entity.industry).toBe("Home and lifestyle retail");
     expect(entity.businessModel).toBe("retail-ecommerce");
+    expect(competitorCandidateScore(entity, {
+      title: "Woonwinkel met woonaccessoires, servies en cadeaus",
+      description: "Bekijk het assortiment van deze Nederlandse webshop voor huis, keuken en tuin.",
+      url: "https://vergelijkbare-winkel.nl/collectie/wonen",
+    })).toBeGreaterThanOrEqual(5);
+    expect(competitorCandidateScore(entity, {
+      title: "Zakelijke software voor accountants",
+      description: "Cloudsoftware voor financiële administratie.",
+      url: "https://software.example/product",
+    })).toBe(-100);
   });
 
   it("rejects search candidates from a different industry", () => {
@@ -199,5 +209,35 @@ describe("representative customer journeys", () => {
     expect(result.journey.primary.stages.map((stage) => stage.pageType)).toEqual(["Homepage", "Category", "Product", "Cart", "Checkout"]);
     expect(result.journey.primary.additionalObservableActions).toBe(3);
     expect(result.gaps.map((gap) => gap.title)).toEqual(["Offer Clarity", "CTA Clarity", "Customer Journey Path"]);
+  });
+
+  it("recognizes a retail homepage with product cards and ignores utility forms", () => {
+    const retailHome = page({
+      url: "https://retailer.nl/",
+      title: "Retailer",
+      description: "Ontdek een assortiment voor wonen, koken, tafelen, cadeaus en buiten.",
+      links: ["https://retailer.nl/nl/wonen/buitenkaars-123", "https://retailer.nl/nl/keuken/servies-456"],
+      markdown: "Ontdek ons assortiment\nBuitenkaars € 16,95\nServies € 12,95\nWonen, koken, tafelen en cadeaus",
+      html: `<html><body>
+        <h1>Retailer</h1>
+        <form action="/search"><input name="query" placeholder="Waar ben je naar op zoek?"></form>
+        <form action="/newsletter"><input name="email"><button>Nieuwsbrief inschrijven</button></form>
+        <a href="/nl/wonen/buitenkaars-123">Buitenkaars € 16,95</a>
+        <a href="/nl/keuken/servies-456">Servies € 12,95</a>
+        <a href="/nl/assortiment">Ontdek ons assortiment</a>
+      </body></html>`,
+    });
+    const result = analyzeCrawl([retailHome], "https://retailer.nl/", 250);
+    const entity = buildDeterministicEntityProfile(result, [retailHome]);
+
+    expect(classifyCommercialModel([retailHome])).toBe("ecommerce");
+    expect(result.journey.businessModels).toContain("Ecommerce");
+    expect(result.journey.primaryConversionType).not.toBe("Lead form");
+    expect(result.overview.estimatedClicks).toBeNull();
+    expect(result.readiness.categories.find((category) => category.id === "customer-journey-path")?.score).toBe(10);
+    expect(result.readiness.categories.find((category) => category.id === "cta-clarity")?.score).toBeGreaterThanOrEqual(72);
+    expect(entity.businessModel).toBe("retail-ecommerce");
+    expect(entity.industry).toBe("Home and lifestyle retail");
+    expect(entity.offerings).toContain("woonaccessoires");
   });
 });

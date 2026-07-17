@@ -4,7 +4,7 @@ export type CommercialModel = "ecommerce" | "booking" | "software" | "marketplac
 export type JourneyRole = "homepage" | "category" | "product" | "service" | "cart" | "checkout" | "conversion" | "pricing" | "trust" | "other";
 
 function visibleText(page: CrawlPage) {
-  return `${page.url} ${page.title} ${page.description} ${page.markdown.slice(0, 2500)} ${page.html.slice(0, 6000)}`.toLowerCase();
+  return `${page.url} ${page.title} ${page.description} ${page.markdown.slice(0, 6000)} ${page.html.slice(0, 12000)}`.toLowerCase();
 }
 
 /** Classifies the commercial model before journey discovery starts. */
@@ -20,7 +20,11 @@ export function classifyCommercialModel(pages: CrawlPage[]): CommercialModel {
   };
   if (/\b(add to (cart|bag|basket)|in winkelmand|winkelmandje|afrekenen|checkout)\b/i.test(text)) scores.ecommerce += 8;
   if (/\/(products?|product|collections?|collecties?|shop|winkel|cart|checkout)\b/i.test(text)) scores.ecommerce += 5;
-  if (/\b(webshop|productcatalogus|product category|onze collectie)\b/i.test(text)) scores.ecommerce += 4;
+  if (/\b(webshop|productcatalogus|product category|onze collectie|ons assortiment|alle categorie[eë]n|bekijk alles|shop nu|online bestellen)\b/i.test(text)) scores.ecommerce += 5;
+  if (/(?:schema\.org\/Product|"@type"\s*:\s*"Product"|product-grid|product-card|product-list|mini-?cart|shopping-?bag|winkelmand)/i.test(text)) scores.ecommerce += 7;
+  const priceSignals = text.match(/(?:€|eur\s*)\s*\d{1,5}(?:[.,]\d{2})?|\b\d{1,4}[,.]\d{2}\b/gi) || [];
+  if (priceSignals.length >= 2) scores.ecommerce += 6;
+  if ((text.match(/href\s*=\s*["'][^"']+(?:artikel|item|sku|product|shop)[^"']*["']/gi) || []).length >= 2) scores.ecommerce += 4;
   if (/\b(boek (nu|online)|booking|afspraak maken|plan een afspraak|reserveer|reservation)\b/i.test(text)) scores.booking += 7;
   if (/\/(booking|boeken|afspraak|reserveer)\b/i.test(text)) scores.booking += 4;
   if (/\b(saas|software|platform|cloud|subscription|abonnement)\b/i.test(text)) scores.software += 5;
