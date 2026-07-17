@@ -430,7 +430,7 @@ function ConversionReadiness({ result }: { result: AnalysisResult }) {
         <div className="readiness-title-line">
           <h2 id="readiness-heading">{result.scoreLabel}</h2>
         </div>
-        <p>{result.journey.businessModels.includes("Ecommerce") ? result.journey.primary.status === "incomplete" ? "Add to cart path not verified." : "Clear path to Add to cart." : readinessExplanation(result.score)}</p>
+        <p>{result.journey.businessModels.includes("Ecommerce") ? result.journey.primary.status === "incomplete" ? "Checkout path could not be estimated." : `${result.journey.primary.clicksToInterface} clicks to checkout.` : readinessExplanation(result.score)}</p>
       </div>
       <div className="readiness-context">
         <div><span><ShieldCheck size={13} /> {result.confidence} confidence</span><small>MVP heuristic · public website evidence</small></div>
@@ -447,7 +447,7 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
     return stages.find((stage) => stage.friction)?.order || stages[0]?.order || 1;
   });
   const activeStage = stages.find((stage) => stage.order === activeStageId) || stages[0];
-  const clickLabel = journey.status === "incomplete" ? "Incomplete journey" : journey.clicksToInterface === null ? "Path unconfirmed" : `${journey.clicksToInterface} conversion step${journey.clicksToInterface === 1 ? "" : "s"}`;
+  const clickLabel = journey.status === "incomplete" ? "Incomplete journey" : journey.clicksToInterface === null ? "Path unconfirmed" : `${journey.clicksToInterface} click${journey.clicksToInterface === 1 ? "" : "s"}`;
   const journeySummary = journey.additionalObservableActions === null ? clickLabel : `${clickLabel} · ${journey.additionalObservableActions} additional action${journey.additionalObservableActions === 1 ? "" : "s"}`;
 
   return (

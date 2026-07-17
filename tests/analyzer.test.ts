@@ -50,10 +50,24 @@ describe("simple acquisition report", () => {
     expect(result.gaps[1].evidence.some((item) => item.statement.includes("Voeg toe aan winkelwagen"))).toBe(true);
   });
 
+  it("scores CTA wording independently from the journey path", () => {
+    const direct = analyzeCrawl(ecommercePages("Koop nu"), "https://shop.nl/", 100);
+    const generic = analyzeCrawl(ecommercePages("Meer informatie"), "https://shop.nl/", 100);
+    expect(direct.gaps[1].score).toBeGreaterThan(generic.gaps[1].score || 0);
+    expect(direct.gaps[1].summary).toContain("Koop nu");
+  });
+
   it("counts an empty-cart category journey through checkout as five clicks", () => {
     const result = analyzeCrawl(ecommercePages(), "https://shop.nl/", 100);
     expect(result.overview.primaryConversion).toBe("Checkout");
     expect(result.overview.estimatedClicks).toBe(5);
+  });
+
+  it("estimates the journey when a dynamic Add to cart label is not captured", () => {
+    const result = analyzeCrawl(ecommercePages("Kies product"), "https://shop.nl/", 100);
+    expect(result.journey.primary.status).toBe("complete");
+    expect(result.overview.estimatedClicks).toBe(5);
+    expect(result.journey.primary.limitations[0]).toContain("not clicked");
   });
 
   it("returns insufficient data when fewer than two useful pages are available", () => {
