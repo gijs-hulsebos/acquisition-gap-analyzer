@@ -3,6 +3,7 @@ import type {
   AnalysisResult,
   CrawlPage,
   Evidence,
+  Gap,
   PublicSearchCompetitor,
   ResolvedCompanyEntity,
 } from "./types";
@@ -58,6 +59,24 @@ function competitorName(page: CrawlPage) {
   return new URL(page.url).hostname.replace(/^www\./, "").split(".")[0].replace(/[-_]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function severityForScore(score: number): Gap["severity"] {
+  const impact = 100 - score;
+  if (impact >= 85) return "Critical";
+  if (impact >= 65) return "High";
+  if (impact >= 40) return "Medium";
+  return "Low";
+}
+
+function offerClarity(page: CrawlPage) {
+  const h1 = cleanText(page.html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || "");
+  const generic = /^(home(page)?|welkom|welcome)$/i;
+  let score = 10;
+  if (h1.length >= 12 && h1.length <= 120 && !generic.test(h1)) score += 40;
+  if (page.title.trim().length >= 8 && !generic.test(page.title.trim())) score += 25;
+  if (page.description.trim().length >= 45) score += 25;
+  return { score: Math.min(100, score), h1 };
+}
+
 export function analyzeCompetitorPage(page: CrawlPage, identity: string | ResolvedCompanyEntity): PublicSearchCompetitor {
   const facts = inspectPage(page);
   const pageText = cleanText(page.html) || cleanText(page.markdown);
@@ -71,6 +90,8 @@ export function analyzeCompetitorPage(page: CrawlPage, identity: string | Resolv
   const serviceHaystack = `${path} ${page.title} ${page.description}`.toLowerCase();
   const dedicatedServicePage = path !== "/" && !NON_SERVICE_PATH.test(path) && serviceTerms.some((term) => serviceHaystack.includes(term));
   const ctaText = facts.clearCtas[0]?.text || facts.genericCtas[0]?.text;
+  const offer = offerClarity(page);
+  const pathScore = conversionPathSteps === 0 ? 95 : conversionPathSteps === 1 ? 80 : 20;
 
   const serviceEvidence: Evidence = {
     statement: dedicatedServicePage
@@ -102,6 +123,47 @@ export function analyzeCompetitorPage(page: CrawlPage, identity: string | Resolv
     url: page.url,
     source: "competitor",
   };
+  const offerEvidence: Evidence = {
+    statement: `Offer clarity scored ${offer.score}/100 from the selected page title, heading and description. ${offer.h1 ? `Detected heading: “${offer.h1}”.` : "No readable H1 heading was detected."}`,
+    pageLabel: "Selected competitor page",
+    url: page.url,
+    source: "competitor",
+  };
+  const findings: Gap[] = [
+    {
+      id: "offer-clarity",
+      rank: 1,
+      title: "Offer Clarity",
+      summary: offer.score >= 80 ? "The selected page makes its offer immediately clear." : "The selected page may require more interpretation to understand its offer.",
+      severity: severityForScore(offer.score),
+      score: offer.score,
+      confidence: "Medium",
+      evidence: [offerEvidence],
+      nextAction: offer.score >= 80 ? "Keep the offer consistent." : "Clarify the main heading.",
+    },
+    {
+      id: "cta-clarity",
+      rank: 2,
+      title: "CTA Clarity",
+      summary: ctaText ? `The selected page uses “${ctaText}” as a visible action.` : "No specific conversion CTA was detected in the selected HTML.",
+      severity: severityForScore(ctaClarity),
+      score: ctaClarity,
+      confidence: "Medium",
+      evidence: [ctaEvidence],
+      nextAction: ctaClarity >= 80 ? "Keep the primary CTA consistent." : "Use a specific conversion CTA.",
+    },
+    {
+      id: "customer-journey-path",
+      rank: 3,
+      title: "Customer Journey Path",
+      summary: conversionPathSteps === 0 ? "A conversion form is visible on the selected page." : conversionPathSteps === 1 ? "The selected page exposes a one-click conversion route." : "A direct conversion route was not confirmed on the selected page.",
+      severity: severityForScore(pathScore),
+      score: pathScore,
+      confidence: "Medium",
+      evidence: [pathEvidence],
+      nextAction: conversionPathSteps === null ? "Expose a direct conversion route." : "Keep the route prominent.",
+    },
+  ];
 
   return {
     name: competitorName(page),
@@ -112,11 +174,11 @@ export function analyzeCompetitorPage(page: CrawlPage, identity: string | Resolv
     ctaClarity,
     conversionPathSteps,
     trustSignals,
+    findings,
     metrics: [
-      { label: "Dedicated service page", value: dedicatedServicePage ? "Visible" : "Not clear", evidence: serviceEvidence },
+      { label: "Offer Clarity", value: `${offer.score}/100`, evidence: offerEvidence },
       { label: "CTA clarity", value: `${ctaClarity}/100`, evidence: ctaEvidence },
-      { label: "Direct conversion path", value: conversionPathSteps === 0 ? "Form on page" : conversionPathSteps === 1 ? "1 step" : "Not visible", evidence: pathEvidence },
-      { label: "Trust signals", value: `${trustSignals.length} type${trustSignals.length === 1 ? "" : "s"}`, evidence: trustEvidence },
+      { label: "Customer Journey Path", value: conversionPathSteps === 0 ? "0 clicks" : conversionPathSteps === 1 ? "1 click" : "Unconfirmed", evidence: pathEvidence },
     ],
   };
 }
@@ -133,34 +195,14 @@ function competitorEvidence(competitor: PublicSearchCompetitor, statement: strin
 /** Adds comparison evidence only to findings that already exist. */
 export function applyCompetitorAnalysis(result: AnalysisResult, pages: CrawlPage[]): AnalysisResult {
   const competitors = pages.slice(0, 2).map((page) => analyzeCompetitorPage(page, result.competitors.entity));
-  const categories = new Map(result.readiness.categories.map((item) => [item.id, item]));
 
   const gaps = result.gaps.map((gap) => {
-    let comparison: Evidence | null = null;
-
-    if (gap.id === "service-page" && result.stats.servicePages === 0) {
-      const competitor = competitors.find((item) => item.dedicatedServicePage);
-      if (competitor) comparison = competitorEvidence(competitor, "the selected result is a dedicated service page, while none was found in the analyzed crawl.");
-    }
-
-    if (gap.id === "cta") {
-      const siteScore = categories.get("cta-clarity")?.score;
-      const competitor = competitors.find((item) => siteScore !== null && siteScore !== undefined && item.ctaClarity >= siteScore + 15);
-      if (competitor) comparison = competitorEvidence(competitor, `its selected page has a clearer deterministic CTA score (${competitor.ctaClarity}/100).`);
-    }
-
-    if (gap.id === "conversion-path" && result.stats.conversionPathSteps !== null) {
-      const competitor = competitors.find((item) => item.conversionPathSteps !== null && item.conversionPathSteps < result.stats.conversionPathSteps!);
-      if (competitor) comparison = competitorEvidence(competitor, `its selected page exposes a ${competitor.conversionPathSteps === 0 ? "form immediately" : "one-step contact action"}.`);
-    }
-
-    if (gap.id === "trust-signals") {
-      const siteScore = categories.get("trust-signals")?.score || 0;
-      const competitor = competitors.find((item) => item.trustSignals.length > 0 && item.trustSignals.length * 25 > siteScore);
-      if (competitor) comparison = competitorEvidence(competitor, `its selected page shows ${competitor.trustSignals.join(", ")}.`);
-    }
-
-    return comparison ? { ...gap, evidence: [...gap.evidence, comparison] } : gap;
+    const stronger = competitors
+      .map((competitor) => ({ competitor, finding: competitor.findings.find((item) => item.id === gap.id) }))
+      .find((item) => item.finding && item.finding.score >= gap.score + 10);
+    if (!stronger?.finding) return gap;
+    const comparison = competitorEvidence(stronger.competitor, `${gap.title} scored ${stronger.finding.score}/100 on its selected commercial page, compared with ${gap.score}/100 for the analyzed journey.`);
+    return { ...gap, evidence: [...gap.evidence, comparison] };
   });
 
   return {

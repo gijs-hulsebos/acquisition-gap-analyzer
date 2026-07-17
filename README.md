@@ -1,6 +1,6 @@
 # Acquisition Gap Analyzer
 
-A full-stack MVP for Dutch SMEs. Enter a public company website and the app crawls a bounded set of pages, extracts observable acquisition evidence, scores six deterministic categories, and returns the three highest-priority gaps in a dashboard.
+A full-stack MVP for Dutch SMEs. Enter a public company website and the app follows one representative conversion journey, then returns a deterministic overview and three fixed evidence-backed findings.
 
 The result is an MVP heuristic based on public website evidence. It is not conversion analytics and does not guarantee commercial performance.
 
@@ -11,24 +11,21 @@ The result is an MVP heuristic based on public website evidence. It is not conve
 - `POST /api/analyze` endpoint with URL validation and local/private-address blocking
 - Homepage-first business classification followed by one model-specific representative journey
 - Extraction of homepage, service/contact pages, CTAs, forms and internal links
-- Six-category weighted conversion-readiness score
+- Three-metric weighted conversion-readiness overview
 - Structured primary customer journey with required clicks, additional observable actions and ordered stages
-- Three ranked, evidence-backed priority findings
+- Exactly three evidence-backed findings: Offer Clarity, CTA Clarity and Customer Journey Path
 - Visible trust-signal analysis on important commercial pages
 - Entity-first comparison with up to two likely Dutch public-search competitors
-- Optional OpenRouter rewrite of deterministic finding copy
+- Optional OpenRouter report-copy rewrite; it cannot generate, score, rank or rename findings
 - Responsive dark dashboard with expandable evidence and crawl details
 
 ## Analysis categories
 
 | Category | Weight | What is measured |
 | --- | ---: | --- |
-| CTA clarity | 20% | Specific versus generic homepage calls to action |
-| Service-page coverage | 20% | Number of dedicated service-specific pages found |
-| Conversion-path quality | 20% | Shortest crawled route from the homepage to a form/contact destination |
-| Form friction | 15% | Visible form-field and required-field count |
-| Message consistency | 10% | Repetition of the primary-service language across key headings and descriptions |
-| Trust signals | 15% | Reviews, testimonials, logos, certifications, cases, guarantees and contact details on important pages |
+| Offer Clarity | 35% | Whether the title, main heading and description make the offer immediately understandable |
+| CTA Clarity | 30% | Whether the landing page exposes a specific commercial action rather than generic prompts |
+| Customer Journey Path | 35% | Shortest evidenced route from arrival to the primary conversion interface |
 
 The score is calculated as:
 
@@ -36,9 +33,9 @@ The score is calculated as:
 sum(category score x category weight) / sum(assessed category weights)
 ```
 
-A score is shown only when at least two readable pages, 80% assessed weight, and all three core categories (CTA, service pages and conversion path) are available. Otherwise the report shows `Insufficient data`. Confidence is calculated separately.
+The three metric scores are always returned when a landing page can be read. Missing journey evidence lowers the Customer Journey Path score and is stated as unconfirmed instead of removing the finding. Confidence remains separate from the score.
 
-Every scored category becomes a potential finding with impact `100 - category score`. The three largest impacts are ranked and returned. Competitor evidence can strengthen one of those existing findings but cannot create a new finding or change the readiness score.
+The JSON response always contains the overview and the same three findings in the same order. Up to two likely public search competitors are evaluated with those same three deterministic checks. OpenRouter receives that finished JSON and may only shorten the report wording.
 
 ## Live-analysis flow
 
@@ -49,11 +46,11 @@ Every scored category becomes a potential finding with impact `100 - category sc
 5. Firecrawl Map is used only as a same-domain lookup for the next required stage.
 6. One linked candidate is scraped for each required stage, preferring URLs linked from the current page. The crawl stops as soon as the primary conversion interface is reached.
 7. A graph of those journey pages, links and observable cart/checkout actions is used to calculate the shortest realistic route.
-8. Only model-relevant checks are loaded: product/category/cart/checkout checks for ecommerce, service/form checks for services, and pricing/signup checks for software.
-9. Six weighted categories are scored with model-specific labels and evidence, and the three highest-impact gaps are ranked.
+8. The deterministic layer scores Offer Clarity, CTA Clarity and Customer Journey Path and emits the stable JSON report contract.
+9. The same three checks are applied to one selected commercial page for each likely public search competitor.
 10. The company entity is resolved from first-party evidence before the separate competitor phase.
 11. Firecrawl Search uses that resolved market profile instead of a raw page keyword, and rejects candidates without sufficient industry and offering overlap.
-12. If OpenRouter is configured, it may rewrite finding copy. Evidence, scores, severity and ranking remain unchanged.
+12. If OpenRouter is configured, it may rewrite summaries and recommended actions. IDs, titles, evidence, scores, severity and ranking remain unchanged.
 
 If competitor discovery or OpenRouter fails, the deterministic website report is still returned.
 
@@ -130,4 +127,4 @@ npm test
 npm run build
 ```
 
-The current automated tests cover weighted scoring, insufficient-data behavior, form friction, trust detection and the rule that competitor evidence may only strengthen existing findings. Live Firecrawl/OpenRouter calls and browser interactions are not part of the automated test suite.
+The current automated tests cover the stable three-finding JSON contract, weighted overview scoring, one-page fallback behavior, trust detection, competitor parity, entity resolution and service/ecommerce journey construction. Live Firecrawl/OpenRouter calls and browser interactions are not part of the automated test suite.

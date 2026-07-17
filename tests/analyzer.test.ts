@@ -45,34 +45,31 @@ function scoredSite(options: { trustOnContact?: boolean; longForm?: boolean } = 
 }
 
 describe("weighted readiness", () => {
-  it("calculates readiness directly from assessed category weights", () => {
+  it("always returns the three required deterministic findings and overview", () => {
     const result = analyzeCrawl(scoredSite({ trustOnContact: true }), "https://voorbeeld.nl/", 1250);
-    const assessed = result.readiness.categories.filter((category) => category.score !== null);
+    const categories = result.readiness.categories;
     const expected = Math.round(
-      assessed.reduce((sum, category) => sum + category.score! * category.weight, 0) /
-        assessed.reduce((sum, category) => sum + category.weight, 0),
+      categories.reduce((sum, category) => sum + category.score! * category.weight, 0) /
+        categories.reduce((sum, category) => sum + category.weight, 0),
     );
 
-    expect(result.readiness.categories).toHaveLength(6);
-    expect(result.readiness.categories.reduce((sum, category) => sum + category.weight, 0)).toBe(100);
+    expect(categories.map((category) => category.id)).toEqual(["offer-clarity", "cta-clarity", "customer-journey-path"]);
+    expect(result.gaps.map((gap) => gap.id)).toEqual(["offer-clarity", "cta-clarity", "customer-journey-path"]);
+    expect(categories.reduce((sum, category) => sum + category.weight, 0)).toBe(100);
     expect(result.score).toBe(expected);
+    expect(result.overview.score).toBe(expected);
     expect(result.readiness.status).toBe("scored");
     expect(result.confidence).toBe("Medium");
   });
 
-  it("keeps form friction unscored when no form is available", () => {
-    const pages = scoredSite().map((item) => ({ ...item, html: item.html.replace(/<form>[\s\S]*?<\/form>/, "") }));
-    const result = analyzeCrawl(pages, "https://voorbeeld.nl/", 500);
-    expect(result.readiness.categories.find((category) => category.id === "form-friction")?.score).toBeNull();
-    expect(result.readiness.assessedWeight).toBe(85);
-  });
-
-  it("returns insufficient data instead of forcing a one-page score", () => {
+  it("returns a cautious but complete report from one representative landing page", () => {
     const homepage = scoredSite()[0];
     const result = analyzeCrawl([homepage], "https://voorbeeld.nl/", 120);
-    expect(result.score).toBeNull();
-    expect(result.scoreLabel).toBe("Insufficient data");
-    expect(result.readiness.status).toBe("insufficient-data");
+    expect(result.score).toEqual(expect.any(Number));
+    expect(result.gaps).toHaveLength(3);
+    expect(result.gaps[2].title).toBe("Customer Journey Path");
+    expect(result.gaps[2].summary).toMatch(/could not be confirmed/i);
+    expect(result.overview.estimatedClicks).toBeNull();
   });
 });
 
@@ -84,21 +81,10 @@ describe("trust-signal analysis", () => {
     expect(signals).toEqual(expect.arrayContaining(["Reviews or ratings", "Certifications", "Guarantees", "Contact details"]));
   });
 
-  it("creates a cautious evidence-backed gap when the conversion page has no proof", () => {
+  it("keeps trust detection separate from the three-report contract", () => {
     const result = analyzeCrawl(scoredSite({ trustOnContact: false }), "https://voorbeeld.nl/", 900);
-    const gap = result.gaps.find((item) => item.id === "trust-signals");
-    expect(gap).toBeDefined();
-    expect(gap?.evidence[0].url).toBe("https://voorbeeld.nl/contact");
-    expect(gap?.evidence[0].statement).toMatch(/No visible|No configured/i);
-    expect(gap?.summary).toMatch(/little or no|no visible/i);
-  });
-
-  it("scores a longer form lower than a short form", () => {
-    const shortResult = analyzeCrawl(scoredSite({ trustOnContact: true }), "https://voorbeeld.nl/", 500);
-    const longResult = analyzeCrawl(scoredSite({ trustOnContact: true, longForm: true }), "https://voorbeeld.nl/", 500);
-    const shortScore = shortResult.readiness.categories.find((item) => item.id === "form-friction")?.score;
-    const longScore = longResult.readiness.categories.find((item) => item.id === "form-friction")?.score;
-    expect(longScore).toBeLessThan(shortScore!);
+    expect(result.gaps).toHaveLength(3);
+    expect(result.stats.trustSignals).toEqual(expect.any(Number));
   });
 });
 
@@ -114,12 +100,8 @@ describe("lightweight competitor analysis", () => {
     );
     expect(competitor.label).toBe("Likely public search competitor");
     expect(competitor.dedicatedServicePage).toBe(true);
-    expect(competitor.metrics.map((metric) => metric.label)).toEqual([
-      "Dedicated service page",
-      "CTA clarity",
-      "Direct conversion path",
-      "Trust signals",
-    ]);
+    expect(competitor.metrics.map((metric) => metric.label)).toEqual(["Offer Clarity", "CTA clarity", "Customer Journey Path"]);
+    expect(competitor.findings.map((finding) => finding.id)).toEqual(["offer-clarity", "cta-clarity", "customer-journey-path"]);
   });
 
   it("adds competitor evidence only to findings that already exist", () => {
@@ -136,8 +118,8 @@ describe("lightweight competitor analysis", () => {
 
     expect(compared.gaps.map((gap) => gap.id)).toEqual(originalIds);
     expect(compared.competitors.competitors).toHaveLength(1);
-    expect(compared.gaps.flatMap((gap) => gap.evidence).some((evidence) => evidence.source === "competitor")).toBe(true);
-    expect(compared.gaps.flatMap((gap) => gap.evidence).filter((evidence) => evidence.source === "competitor").every((evidence) => /Likely public search competitor/.test(evidence.statement))).toBe(true);
+    expect(compared.competitors.competitors[0].findings).toHaveLength(3);
+    expect(compared.competitors.competitors[0].findings.every((finding) => finding.evidence.every((evidence) => evidence.source === "competitor"))).toBe(true);
   });
 });
 
@@ -216,6 +198,6 @@ describe("representative customer journeys", () => {
     expect(result.journey.primary.clicksToInterface).toBe(4);
     expect(result.journey.primary.stages.map((stage) => stage.pageType)).toEqual(["Homepage", "Category", "Product", "Cart", "Checkout"]);
     expect(result.journey.primary.additionalObservableActions).toBe(3);
-    expect(result.readiness.categories.find((category) => category.id === "service-page-coverage")?.label).toBe("Product-journey coverage");
+    expect(result.gaps.map((gap) => gap.title)).toEqual(["Offer Clarity", "CTA Clarity", "Customer Journey Path"]);
   });
 });
