@@ -455,6 +455,7 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
       id: "understand",
       number: "01",
       label: "Understand the offer",
+      signalLabel: "Offer",
       score: average(["service-page-coverage", "message-consistency"]),
       categoryIds: ["service-page-coverage", "message-consistency"] as const,
       explanation: "Is the offer immediately clear?",
@@ -463,6 +464,7 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
       id: "confidence",
       number: "02",
       label: "Build confidence",
+      signalLabel: "CTA",
       score: average(["cta-clarity", "trust-signals"]),
       categoryIds: ["cta-clarity", "trust-signals"] as const,
       explanation: "Is the next step clear and credible?",
@@ -471,6 +473,7 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
       id: "enquiry",
       number: "03",
       label: "Complete the enquiry",
+      signalLabel: "Path",
       score: average(["conversion-path-quality", "form-friction"]),
       categoryIds: ["conversion-path-quality", "form-friction"] as const,
       explanation: "Can visitors enquire without friction?",
@@ -499,20 +502,24 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
             key={stage.id}
           >
             <span className="journey-node">{stage.number}</span>
-            <span className="journey-stage-copy"><strong>{stageStatus(stage.score)}</strong></span>
+            <span className="journey-stage-copy"><strong>{stage.signalLabel}</strong></span>
             <span className="journey-value">{stage.score ?? "—"}</span>
             <span className="journey-meter"><i style={{ width: `${stage.score ?? 0}%` }} /></span>
+            <span className="journey-hover-card" role="tooltip">
+              <strong>{stage.label}</strong>
+              <span>{stage.explanation}</span>
+              <small>
+                {stage.categoryIds.map((id) => {
+                  const signal = categories.get(id);
+                  return `${signal?.label}: ${signal?.score ?? "not scored"}`;
+                }).join(" · ")}
+              </small>
+            </span>
           </button>
         ))}
       </div>
       <div className="journey-detail" aria-live="polite">
-        <div><strong>{activeStage.label}</strong><p>{activeStage.explanation}</p></div>
-        <div className="journey-signals">
-          {activeStage.categoryIds.map((id) => {
-            const signal = categories.get(id);
-            return <span key={id}><small>{signal?.label}</small><strong>{signal?.score ?? "—"}</strong></span>;
-          })}
-        </div>
+        <strong>{activeStage.label}</strong>
       </div>
     </section>
   );

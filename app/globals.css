@@ -510,7 +510,20 @@ a { color: inherit; }
 .journey-value { color: #817587; font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .journey-meter { grid-column: 1 / -1; height: 3px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.045); }
 .journey-meter i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #7051ab, #bd6fc7); transition: width .35s cubic-bezier(.22,.75,.2,1); }
-.journey-detail { min-height: 73px; margin-top: 9px; padding: 11px 12px; border: 1px solid rgba(211,188,235,.075); border-radius: 9px; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 18px; background: rgba(8,7,11,.27); }
+.journey-hover-card { width: max-content; max-width: min(300px, calc(100vw - 34px)); padding: 11px 13px; border: 1px solid rgba(206,151,238,.22); border-radius: 9px; position: absolute; left: 50%; bottom: calc(100% + 10px); z-index: 12; display: flex; flex-direction: column; gap: 4px; opacity: 0; visibility: hidden; transform: translate(-50%, 5px); color: #dcd2e2; background: rgba(18,14,22,.98); box-shadow: 0 14px 35px rgba(0,0,0,.42); pointer-events: none; transition: opacity .16s ease, transform .16s ease, visibility .16s ease; }
+.journey-hover-card::after { content: ""; width: 8px; height: 8px; position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%) rotate(45deg); border-right: 1px solid rgba(206,151,238,.22); border-bottom: 1px solid rgba(206,151,238,.22); background: rgba(18,14,22,.98); }
+.journey-hover-card strong { color: #f0e8f4; font-size: 11px; font-weight: 660; }
+.journey-hover-card span { color: #b8acbf; font-size: 10px; line-height: 1.4; }
+.journey-hover-card small { color: #a986bd; font-size: 9px; line-height: 1.4; }
+.journey-flow button:hover .journey-hover-card, .journey-flow button:focus-visible .journey-hover-card { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+.journey-flow button:first-child .journey-hover-card { left: 0; transform: translate(0, 5px); }
+.journey-flow button:first-child:hover .journey-hover-card, .journey-flow button:first-child:focus-visible .journey-hover-card { transform: translate(0, 0); }
+.journey-flow button:first-child .journey-hover-card::after { left: 24px; }
+.journey-flow button:last-child .journey-hover-card { right: 0; left: auto; transform: translate(0, 5px); }
+.journey-flow button:last-child:hover .journey-hover-card, .journey-flow button:last-child:focus-visible .journey-hover-card { transform: translate(0, 0); }
+.journey-flow button:last-child .journey-hover-card::after { right: 24px; left: auto; transform: rotate(45deg); }
+.journey-detail { min-height: 54px; margin-top: 9px; padding: 11px 12px; border: 1px solid rgba(211,188,235,.075); border-radius: 9px; display: flex; align-items: center; background: rgba(8,7,11,.27); }
+.journey-detail > strong { color: #e0d6e5; font-size: 12px; font-weight: 630; }
 .journey-detail > div:first-child > span { color: #6e6374; font-size: 6px; font-weight: 700; letter-spacing: .65px; text-transform: uppercase; }
 .journey-detail > div:first-child > strong { display: block; margin-top: 3px; color: #cfc5d5; font-size: 10px; font-weight: 630; }
 .journey-detail > div:first-child > strong { margin-top: 0; }
@@ -876,4 +889,117 @@ body { font-variation-settings: "wght" 500; }
   .journey-value { font-size: 11px; }
   .finding-title h3 { font-size: 16px; }
   .competitor-summary { font-size: 10px; }
+}
+
+/* Fluid dashboard sizing */
+.dashboard-content {
+  width: min(1480px, calc(100% - clamp(40px, 4vw, 72px)));
+}
+
+@media (min-width: 1600px) {
+  .dashboard-shell::before { left: 250px; }
+  .dashboard-sidebar { width: 250px; padding-inline: 20px; }
+  .sidebar-brand { height: 76px; }
+  .dashboard-main { margin-left: 250px; }
+  .dashboard-topbar { height: 76px; padding-inline: 38px; }
+  .dashboard-content { padding-top: 36px; padding-bottom: 62px; }
+
+  .company-heading { margin-bottom: 24px; }
+  .company-avatar { width: 60px; height: 60px; border-radius: 14px; font-size: 18px; }
+  .company-heading h1 { font-size: 32px; letter-spacing: -1.1px; }
+  .company-heading p { font-size: 13px; }
+  .analysis-meta { font-size: 12px; }
+
+  .overview-workspace { gap: 16px; }
+  .conversion-readiness {
+    min-height: 282px;
+    padding: 27px 28px;
+    grid-template-columns: 150px minmax(0,1fr);
+    gap: 25px;
+  }
+  .readiness-score-block { min-height: 160px; padding-right: 24px; }
+  .readiness-score-block > span, .readiness-label { font-size: 10px; }
+  .readiness-score-circle { width: 112px; height: 112px; }
+  .readiness-score-value { width: 88px; height: 88px; }
+  .readiness-score-circle strong { font-size: 31px; }
+  .readiness-title-line h2 { font-size: 27px; }
+  .readiness-status { font-size: 9px; }
+  .readiness-copy p { font-size: 13px; }
+  .readiness-context span { font-size: 12px; }
+  .readiness-context small, .readiness-context > a { font-size: 11px; }
+  .readiness-context > a { height: 36px; padding-inline: 13px; }
+
+  .journey-panel { min-height: 282px; padding: 24px 26px 21px; }
+  .journey-heading > div > span, .journey-heading > small { font-size: 11px; }
+  .journey-heading h2 { font-size: 21px; }
+  .journey-flow { margin-top: 19px; gap: 10px; }
+  .journey-flow button { min-height: 70px; padding: 11px 12px 10px; grid-template-columns: 31px minmax(0,1fr) auto; gap: 8px; }
+  .journey-node { width: 31px; height: 31px; font-size: 10px; }
+  .journey-stage-copy strong { font-size: 12px; }
+  .journey-value { font-size: 13px; }
+  .journey-detail { min-height: 60px; padding: 13px 15px; }
+  .journey-detail > div:first-child > strong { font-size: 13px; }
+  .journey-detail p { font-size: 11px; }
+  .journey-signals small { font-size: 10px; }
+  .journey-signals strong { font-size: 13px; }
+
+  .gaps-section { margin-top: 36px; margin-bottom: 46px; }
+  .gaps-section .section-heading h2 { font-size: 29px; }
+  .gap-list { gap: 12px; }
+  .finding-row > summary {
+    min-height: 144px;
+    padding: 22px 24px;
+    grid-template-columns: 66px 48px minmax(0,1fr) 22px;
+    gap: 17px;
+  }
+  .finding-rank { min-height: 64px; font-size: 23px; }
+  .finding-row .gap-icon { width: 42px; height: 42px; }
+  .finding-title h3 { font-size: 20px; }
+  .finding-title p { font-size: 13px; }
+  .finding-action-preview span { font-size: 10px; }
+  .finding-action-preview strong { font-size: 12px; }
+  .finding-detail { padding: 19px 24px 22px 179px; }
+  .finding-detail p { font-size: 12px; }
+
+  .competitor-heading h2 { font-size: 27px; }
+  .competitor-summary { padding: 12px 15px; font-size: 12px; }
+  .competitor-table-row { min-height: 52px; padding-inline: 22px; font-size: 12px; }
+  .competitor-table-head { min-height: 68px; }
+  .competitor-table-row > strong, .competitor-table-row > a { font-size: 12px; }
+  .competitor-table footer { font-size: 11px; }
+  .technical-section > summary { min-height: 66px; }
+}
+
+/* Use the full canvas on iPad landscape and compact laptops. */
+@media (min-width: 881px) and (max-width: 1024px) {
+  .dashboard-sidebar { display: none; }
+  .dashboard-main { margin-left: 0; }
+  .dashboard-shell::before { left: 0; }
+  .mobile-brand { display: block; }
+  .breadcrumbs { display: none; }
+  .dashboard-topbar { padding-inline: 24px; }
+  .dashboard-content { width: min(920px, calc(100% - 40px)); }
+}
+
+@media (min-width: 621px) and (max-width: 880px) {
+  .dashboard-content { width: min(760px, calc(100% - 32px)); }
+  .company-heading h1 { font-size: 29px; }
+  .conversion-readiness { padding: 23px 24px; }
+  .journey-panel { padding: 21px 22px 19px; }
+}
+
+@media (max-width: 620px) {
+  .dashboard-content { width: calc(100% - 22px); padding-top: 20px; }
+  .dashboard-topbar { min-height: 64px; padding-inline: 12px; }
+  .new-analysis-button { padding-inline: 11px; }
+  .company-heading { gap: 12px; margin-bottom: 18px; }
+  .company-identity { gap: 12px; min-width: 0; }
+  .company-heading h1 { font-size: clamp(23px, 6.5vw, 28px); overflow-wrap: anywhere; }
+  .company-heading p { font-size: 11px; line-height: 1.45; }
+  .overview-workspace { gap: 11px; }
+  .conversion-readiness, .journey-panel { border-radius: 13px; }
+  .gaps-section { margin-top: 25px; }
+  .gaps-section .section-heading h2, .competitor-heading h2 { font-size: 23px; }
+  .finding-row > summary { padding: 17px 15px; }
+  .competitor-table { overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
 }
