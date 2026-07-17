@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { analyzeCrawl, detectTrustSignals } from "../lib/analyzer";
 import { analyzeCompetitorPage, applyCompetitorAnalysis } from "../lib/competitors";
 import { buildDeterministicEntityProfile, competitorCandidateScore } from "../lib/entity";
-import { selectRepresentativeUrls } from "../lib/firecrawl";
+import { classifyCommercialModel, journeyRolesForModel } from "../lib/journey-model";
 import type { CrawlPage } from "../lib/types";
 
 function page(overrides: Partial<CrawlPage> & Pick<CrawlPage, "url" | "title" | "html">): CrawlPage {
@@ -183,21 +183,22 @@ describe("entity-first competitor discovery", () => {
 });
 
 describe("representative customer journeys", () => {
-  it("selects page types instead of multiple catalogue items", () => {
-    const selected = selectRepresentativeUrls("https://winkel.nl/", [
-      { url: "https://winkel.nl/collecties/keuken", title: "Keuken" },
-      { url: "https://winkel.nl/products/pan", title: "Pan" },
-      { url: "https://winkel.nl/products/bord", title: "Bord" },
-      { url: "https://winkel.nl/products/mok", title: "Mok" },
-      { url: "https://winkel.nl/cart", title: "Winkelmand" },
-      { url: "https://winkel.nl/checkout", title: "Afrekenen" },
-      { url: "https://winkel.nl/retourneren", title: "Retourneren" },
-    ], 8);
+  it("classifies the landing page before choosing a journey template", () => {
+    const ecommerceHome = page({
+      url: "https://winkel.nl/",
+      title: "Voorbeeldwinkel",
+      html: '<html><body><h1>Wonen en keuken</h1><a href="/collecties/keuken">Bekijk collectie</a><a href="/cart">Winkelmand</a></body></html>',
+    });
+    const serviceHome = page({
+      url: "https://installateur.nl/",
+      title: "Installateur",
+      html: '<html><body><h1>Installatie en onderhoud</h1><a href="/diensten">Onze diensten</a><a href="/offerte">Vraag offerte aan</a></body></html>',
+    });
 
-    expect(selected).toContain("https://winkel.nl/");
-    expect(selected).toContain("https://winkel.nl/cart");
-    expect(selected).toContain("https://winkel.nl/checkout");
-    expect(selected.filter((url) => url.includes("/products/"))).toHaveLength(1);
+    expect(classifyCommercialModel([ecommerceHome])).toBe("ecommerce");
+    expect(journeyRolesForModel("ecommerce")).toEqual(["homepage", "category", "product", "cart", "checkout"]);
+    expect(classifyCommercialModel([serviceHome])).toBe("service");
+    expect(journeyRolesForModel("service")).toEqual(["homepage", "service", "conversion"]);
   });
 
   it("builds an ecommerce route through category, product, cart and checkout", () => {
@@ -215,5 +216,6 @@ describe("representative customer journeys", () => {
     expect(result.journey.primary.clicksToInterface).toBe(4);
     expect(result.journey.primary.stages.map((stage) => stage.pageType)).toEqual(["Homepage", "Category", "Product", "Cart", "Checkout"]);
     expect(result.journey.primary.additionalObservableActions).toBe(3);
+    expect(result.readiness.categories.find((category) => category.id === "service-page-coverage")?.label).toBe("Product-journey coverage");
   });
 });

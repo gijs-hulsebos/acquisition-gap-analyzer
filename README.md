@@ -9,7 +9,7 @@ The result is an MVP heuristic based on public website evidence. It is not conve
 - Landing page with URL entry and saved demo mode
 - Four-step loading experience
 - `POST /api/analyze` endpoint with URL validation and local/private-address blocking
-- Firecrawl v2 domain mapping followed by targeted scraping of up to eight representative journey pages
+- Homepage-first business classification followed by one model-specific representative journey
 - Extraction of homepage, service/contact pages, CTAs, forms and internal links
 - Six-category weighted conversion-readiness score
 - Structured primary customer journey with required clicks, additional observable actions and ordered stages
@@ -43,16 +43,17 @@ Every scored category becomes a potential finding with impact `100 - category sc
 ## Live-analysis flow
 
 1. The server validates and normalizes the submitted URL.
-2. Firecrawl Map discovers the submitted domain structure without scraping the catalogue.
-3. The selector chooses at most one representative homepage, category, product, service, cart, checkout/form, pricing and trust page.
-4. Firecrawl scrapes only those selected same-domain pages; the former bounded crawl is used only as a fallback if mapping fails.
-5. The analyzer infers one or more business models and selects the most important visible commercial conversion.
-6. A graph of selected internal pages, links and observable cart/checkout actions is used to find the shortest realistic route from homepage to conversion interface.
-7. Six deterministic categories are scored and the three highest-impact evidence-backed gaps are ranked.
-8. The company entity is resolved from first-party evidence before the separate competitor phase.
-9. Firecrawl Search uses that resolved market profile instead of a raw page keyword, and rejects candidates without sufficient industry and offering overlap.
-10. Up to two matching domains are selected and one commercial page per domain is scraped and validated again.
-11. If OpenRouter is configured, it may rewrite finding copy. Evidence, scores, severity and ranking remain unchanged.
+2. Firecrawl scrapes the submitted landing page first.
+3. The landing-page evidence classifies the commercial model before any journey pages are selected: ecommerce, booking, software/subscription, marketplace, service or informational.
+4. A model-specific journey template is loaded. Ecommerce follows category → product → cart → checkout; services follow service → quote/booking/contact; software follows pricing → signup/demo.
+5. Firecrawl Map is used only as a same-domain lookup for the next required stage.
+6. One linked candidate is scraped for each required stage, preferring URLs linked from the current page. The crawl stops as soon as the primary conversion interface is reached.
+7. A graph of those journey pages, links and observable cart/checkout actions is used to calculate the shortest realistic route.
+8. Only model-relevant checks are loaded: product/category/cart/checkout checks for ecommerce, service/form checks for services, and pricing/signup checks for software.
+9. Six weighted categories are scored with model-specific labels and evidence, and the three highest-impact gaps are ranked.
+10. The company entity is resolved from first-party evidence before the separate competitor phase.
+11. Firecrawl Search uses that resolved market profile instead of a raw page keyword, and rejects candidates without sufficient industry and offering overlap.
+12. If OpenRouter is configured, it may rewrite finding copy. Evidence, scores, severity and ranking remain unchanged.
 
 If competitor discovery or OpenRouter fails, the deterministic website report is still returned.
 

@@ -1,6 +1,5 @@
 import type {
   AnalysisResult,
-  BusinessModel,
   Confidence,
   ConversionType,
   CrawlPage,
@@ -15,6 +14,8 @@ import type {
   TrustSignalType,
 } from "./types";
 import { normalizePageUrl } from "./url";
+import { classifyCommercialModel, publicBusinessModels } from "./journey-model";
+import type { CommercialModel } from "./journey-model";
 
 type Clickable = { text: string; href: string | null };
 type FormFacts = { fieldCount: number; requiredCount: number };
@@ -81,6 +82,14 @@ const TRUST_PATTERNS: Array<{ type: TrustSignalType; patterns: RegExp[] }> = [
   {
     type: "Guarantees",
     patterns: [/\b(garantie|gegarandeerd|niet goed.{0,20}geld terug|tevredenheidsgarantie|satisfaction guarantee)\b/i],
+  },
+  {
+    type: "Delivery or returns",
+    patterns: [/\b(bezorging|verzending|levertijd|delivery|shipping|retourneren|retourbeleid|returns policy|gratis retour)\b/i],
+  },
+  {
+    type: "Payment information",
+    patterns: [/\b(iDEAL|betaalmethoden|veilig betalen|payment methods?|creditcard|paypal|achteraf betalen)\b/i],
   },
 ];
 
@@ -294,21 +303,6 @@ function journeyPageType(page: PageFacts, homepage: PageFacts): JourneyPageType 
   return "Other";
 }
 
-function inferBusinessModels(pages: PageFacts[], homepage: PageFacts): BusinessModel[] {
-  const text = pages.map((page) => `${page.normalizedUrl} ${page.title} ${page.bodyText.slice(0, 1800)}`).join(" ");
-  const clickText = pages.flatMap((page) => page.clickables.map((item) => item.text)).join(" ");
-  const models: BusinessModel[] = [];
-  if (ADD_TO_CART.test(clickText) || /\/(cart|checkout|winkelmand|afrekenen|products?|collectie)\b/i.test(text)) models.push("Ecommerce");
-  if (BOOKING_ACTION.test(clickText) || /\/(booking|boeken|afspraak|reserveer)\b/i.test(text)) models.push("Appointment or booking");
-  if (/\b(saas|software|platform|cloud|abonnement|subscription)\b/i.test(text) && (SIGNUP_ACTION.test(clickText) || DEMO_ACTION.test(clickText))) models.push("Software or subscription");
-  if (/\b(marktplaats|marketplace|aanbieders|verkopers|providers|boek een professional)\b/i.test(text)) models.push("Marketplace");
-  if (pages.some((page) => page.forms.length > 0) || QUOTE_ACTION.test(clickText) || CONTACT_PATH.test(text)) models.push("Lead generation");
-  if (/\b(advocaat|accountant|consultancy|adviesbureau|makelaar|architect|agency|bureau)\b/i.test(text)) models.push("Professional services");
-  if (/\b(werkgebied|installatie|onderhoud|reparatie|service aan huis|lokale specialist)\b/i.test(text)) models.push("Local service business");
-  if (!models.length) models.push("Informational or non-commercial");
-  return Array.from(new Set(models));
-}
-
 function conversionTypeFor(page: PageFacts, type: JourneyPageType): ConversionType {
   const clickText = page.clickables.map((item) => item.text).join(" ");
   if (type === "Checkout") return "Checkout";
@@ -369,8 +363,8 @@ function shortestJourneyRoute(homepage: PageFacts, targets: Set<string>, edges: 
   return null;
 }
 
-function buildJourneyAnalysis(pages: PageFacts[], homepage: PageFacts, primaryService: string): JourneyAnalysis {
-  const businessModels = inferBusinessModels(pages, homepage);
+function buildJourneyAnalysis(pages: PageFacts[], homepage: PageFacts, primaryService: string, commercialModel: CommercialModel): JourneyAnalysis {
+  const businessModels = publicBusinessModels(commercialModel, pages.map((page) => page.bodyText).join(" "));
   const typedPages = pages.map((page) => ({ page, type: journeyPageType(page, homepage), conversion: conversionTypeFor(page, journeyPageType(page, homepage)) }));
   const priority: ConversionType[] = businessModels.includes("Ecommerce")
     ? ["Checkout", "Add to cart", "Quote request", "Lead form", "Contact"]
@@ -449,9 +443,11 @@ function category(
   return { id, label, score, weight: CATEGORY_WEIGHTS[id], confidence, explanation, evidence };
 }
 
-function ctaCategory(homepage: PageFacts, pages: PageFacts[]) {
-  const relevant = homepage.clickables.filter((item) => CLEAR_CTA.test(item.text) || GENERIC_CTA.test(item.text));
-  const clear = relevant.filter((item) => CLEAR_CTA.test(item.text));
+function ctaCategory(homepage: PageFacts, pages: PageFacts[], commercialModel: CommercialModel) {
+  const ecommerceCta = /\b(shop( nu)?|bekijk (de )?collectie|producten bekijken|bestel( nu)?|naar de winkel|ontdek de collectie)\b/i;
+  const clearPattern = commercialModel === "ecommerce" || commercialModel === "marketplace" ? new RegExp(`${CLEAR_CTA.source}|${ecommerceCta.source}`, "i") : CLEAR_CTA;
+  const relevant = homepage.clickables.filter((item) => clearPattern.test(item.text) || GENERIC_CTA.test(item.text));
+  const clear = relevant.filter((item) => clearPattern.test(item.text));
   const generic = relevant.filter((item) => GENERIC_CTA.test(item.text));
   const score = clear.length >= 2 ? 92 : clear.length === 1 ? 72 : generic.length ? 35 : 12;
   const statement = clear.length
@@ -469,7 +465,37 @@ function ctaCategory(homepage: PageFacts, pages: PageFacts[]) {
   );
 }
 
-function serviceCategory(homepage: PageFacts, pages: PageFacts[], servicePages: PageFacts[], internalLinkCount: number) {
+function serviceCategory(homepage: PageFacts, pages: PageFacts[], servicePages: PageFacts[], internalLinkCount: number, commercialModel: CommercialModel) {
+  if (commercialModel === "ecommerce" || commercialModel === "marketplace") {
+    const categoryPages = pages.filter((page) => journeyPageType(page, homepage) === "Category");
+    const productPages = pages.filter((page) => journeyPageType(page, homepage) === "Product");
+    const score = categoryPages.length && productPages.length ? 95 : productPages.length ? 72 : categoryPages.length ? 58 : 20;
+    const evidencePage = productPages[0] || categoryPages[0] || homepage;
+    const statement = categoryPages.length && productPages.length
+      ? "A representative category and product-detail step were both detected in the customer journey."
+      : productPages.length
+        ? "A product-detail step was detected, but no representative category step was confirmed."
+        : categoryPages.length
+          ? "A category step was detected, but no representative product-detail step was confirmed."
+          : "No representative category or product-detail step was confirmed from the landing page.";
+    return category(
+      "service-page-coverage",
+      "Product-journey coverage",
+      score,
+      confidenceFor(pages.length, categoryPages.length + productPages.length || 1),
+      statement,
+      [{ statement, pageLabel: pageLabel(evidencePage, homepage), url: evidencePage.url }],
+    );
+  }
+
+  if (commercialModel === "software") {
+    const pricingPage = pages.find((page) => journeyPageType(page, homepage) === "Pricing");
+    const score = pricingPage ? 90 : servicePages.length ? 65 : 25;
+    const evidencePage = pricingPage || servicePages[0] || homepage;
+    const statement = pricingPage ? "A representative pricing step was detected before signup or demo conversion." : "No representative pricing step was confirmed in the public conversion journey.";
+    return category("service-page-coverage", "Offer and pricing coverage", score, confidenceFor(pages.length, pricingPage ? 2 : 1), statement, [{ statement, pageLabel: pageLabel(evidencePage, homepage), url: evidencePage.url }]);
+  }
+
   const score = servicePages.length >= 3 ? 95 : servicePages.length === 2 ? 82 : servicePages.length === 1 ? 58 : 20;
   const statement = servicePages.length
     ? `${servicePages.length} dedicated service page${servicePages.length === 1 ? " was" : "s were"} detected across ${pages.length} crawled pages.`
@@ -604,7 +630,7 @@ function trustCategory(homepage: PageFacts, pages: PageFacts[], servicePages: Pa
   );
 }
 
-function gapFromCategory(item: ReadinessCategory, homepage: PageFacts): Omit<Gap, "rank"> | null {
+function gapFromCategory(item: ReadinessCategory, homepage: PageFacts, commercialModel: CommercialModel): Omit<Gap, "rank"> | null {
   if (item.score === null) return null;
   const impact = 100 - item.score;
   const content: Record<ReadinessCategory["id"], { id: GapId; title: string; summary: string; action: string }> = {
@@ -612,7 +638,10 @@ function gapFromCategory(item: ReadinessCategory, homepage: PageFacts): Omit<Gap
       id: "cta", title: "Primary CTA may be unclear", summary: "The homepage does not make the next commercial step specific enough.", action: "Use one specific quote, booking or consultation CTA.",
     },
     "service-page-coverage": {
-      id: "service-page", title: "Service coverage appears limited", summary: "Important services may not have enough dedicated commercial content.", action: "Create a focused page for the highest-value uncovered service.",
+      id: "service-page",
+      title: commercialModel === "ecommerce" || commercialModel === "marketplace" ? "Product journey is incomplete" : commercialModel === "software" ? "Pricing path is incomplete" : "Service coverage appears limited",
+      summary: commercialModel === "ecommerce" || commercialModel === "marketplace" ? "A complete category-to-product route was not confirmed." : commercialModel === "software" ? "Visitors may not reach clear pricing before conversion." : "Important services may not have enough dedicated commercial content.",
+      action: commercialModel === "ecommerce" || commercialModel === "marketplace" ? "Connect one category directly to a representative product." : commercialModel === "software" ? "Expose pricing before signup or demo conversion." : "Create a focused page for the highest-value uncovered service.",
     },
     "conversion-path-quality": {
       id: "conversion-path", title: "Conversion path may lose visitors", summary: "The shortest visible path to contact contains avoidable friction.", action: "Link the primary CTA to the closest working conversion action.",
@@ -667,14 +696,15 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
   const internalLinks = new Set(pages.flatMap((page) => page.normalizedLinks));
   const primaryService = inferPrimaryService(homepage, servicePages);
   const market = inferMarket(pages);
-  const journey = buildJourneyAnalysis(pages, homepage, primaryService);
+  const commercialModel = classifyCommercialModel(pages);
+  const journey = buildJourneyAnalysis(pages, homepage, primaryService, commercialModel);
   const fallbackPath = shortestConversionPath(pages, homepage);
   const path = journey.primary.shortestRoute.length ? journey.primary.shortestRoute : fallbackPath;
   const destination = path ? pages.find((page) => page.normalizedUrl === path[path.length - 1]) || null : null;
 
   const categories = [
-    ctaCategory(homepage, pages),
-    serviceCategory(homepage, pages, servicePages, internalLinks.size),
+    ctaCategory(homepage, pages, commercialModel),
+    serviceCategory(homepage, pages, servicePages, internalLinks.size, commercialModel),
     conversionCategory(homepage, pages, path),
     formCategory(homepage, pages, destination),
     messageCategory(homepage, pages, servicePages, primaryService),
@@ -692,7 +722,7 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
   const reportConfidence = confidenceFor(readablePages, assessed.length);
 
   const candidates = categories
-    .map((item) => gapFromCategory(item, homepage))
+    .map((item) => gapFromCategory(item, homepage, commercialModel))
     .filter((item): item is Omit<Gap, "rank"> => item !== null)
     .sort((a, b) => b.score - a.score);
   const gaps: Gap[] = candidates.slice(0, 3).map((gap, index) => ({ ...gap, rank: index + 1 }));

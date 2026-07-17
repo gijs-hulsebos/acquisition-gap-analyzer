@@ -101,6 +101,8 @@ export type TrustSignalType =
   | "Certifications"
   | "Case studies"
   | "Guarantees"
+  | "Delivery or returns"
+  | "Payment information"
   | "Contact details";
 
 export type CompetitorMetric = {

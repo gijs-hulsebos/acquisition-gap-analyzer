@@ -1,6 +1,8 @@
 import type { CrawlPage } from "./types";
 import { buildCompetitorSearchQuery, competitorCandidateScore } from "./entity";
 import type { ResolvedCompanyEntity } from "./types";
+import { classifyCommercialModel, journeyRolesForModel } from "./journey-model";
+import type { CommercialModel, JourneyRole } from "./journey-model";
 import { normalizeAndValidateUrl } from "./url";
 
 type FirecrawlDocument = {
@@ -176,7 +178,7 @@ async function scrapePage(url: string, apiKey: string, timeout = 8_000): Promise
   const result = (await response.json()) as FirecrawlScrapeResponse;
   const document = result.data;
   const pageUrl = document?.metadata?.sourceURL || document?.metadata?.url || url;
-  if (!result.success || !document) throw new Error(result.error || "The competitor page could not be read.");
+  if (!result.success || !document) throw new Error(result.error || "The page could not be read.");
 
   return {
     url: pageUrl,
@@ -189,11 +191,9 @@ async function scrapePage(url: string, apiKey: string, timeout = 8_000): Promise
   };
 }
 
-type RepresentativeKind = "homepage" | "category" | "product" | "service" | "cart" | "checkout" | "conversion" | "pricing" | "trust" | "other";
-
 const STATIC_ASSET = /\.(?:jpg|jpeg|png|gif|webp|svg|pdf|xml|json|css|js|zip)(?:$|\?)/i;
 
-function representativeKind(link: FirecrawlMapLink, baseUrl: string): RepresentativeKind {
+function representativeKind(link: FirecrawlMapLink, baseUrl: string): JourneyRole {
   const parsed = new URL(link.url || baseUrl, baseUrl);
   const path = parsed.pathname.toLowerCase().replace(/\/$/, "") || "/";
   const text = `${path} ${link.title || ""} ${link.description || ""}`.toLowerCase();
@@ -201,19 +201,19 @@ function representativeKind(link: FirecrawlMapLink, baseUrl: string): Representa
   if (/\/(checkout|afrekenen|kassa|payment|betalen)(\/|$)/i.test(path)) return "checkout";
   if (/\/(cart|basket|bag|winkelmand|mandje)(\/|$)/i.test(path)) return "cart";
   if (/\/(contact|offerte|quote|booking|boeken|afspraak|demo|aanvraag|application|apply|signup|register|trial)(\/|$)/i.test(path)) return "conversion";
-  if (/\/(products?|product|p)\//i.test(path) || /\b(product detail|artikelnummer|in winkelmand|add to cart)\b/i.test(text)) return "product";
-  if (/\/(collections?|collecties?|categories?|categorie|catalogus|shop|winkel)\//i.test(path)) return "category";
-  if (/\/(diensten?|services?|oplossingen?|solutions?)\//i.test(path)) return "service";
+  if (/\/(products?|product|p)(\/|$)/i.test(path) || /\b(product detail|artikelnummer|in winkelmand|add to cart)\b/i.test(text)) return "product";
+  if (/\/(collections?|collecties?|categories?|categorie|catalogus|shop|winkel)(\/|$)/i.test(path)) return "category";
+  if (/\/(diensten?|services?|oplossingen?|solutions?)(\/|$)/i.test(path)) return "service";
   if (/\/(pricing|prijzen|tarieven|abonnementen)(\/|$)/i.test(path)) return "pricing";
   if (/\/(delivery|shipping|bezorg|retour|returns?|garantie|guarantee|faq|veelgestelde-vragen|keurmerken?)(\/|$)/i.test(path)) return "trust";
   return "other";
 }
 
-function representativeScore(link: FirecrawlMapLink, kind: RepresentativeKind) {
+function representativeScore(link: FirecrawlMapLink, kind: JourneyRole) {
   const path = new URL(link.url!).pathname;
   const depth = path.split("/").filter(Boolean).length;
   const titleBonus = link.title ? 2 : 0;
-  const kindBonus: Record<RepresentativeKind, number> = {
+  const kindBonus: Record<JourneyRole, number> = {
     homepage: 100,
     checkout: 95,
     cart: 90,
@@ -228,49 +228,90 @@ function representativeScore(link: FirecrawlMapLink, kind: RepresentativeKind) {
   return kindBonus[kind] + titleBonus - depth;
 }
 
-/** Selects page types needed for a representative conversion path, not a catalogue sample. */
-export function selectRepresentativeUrls(baseUrl: string, links: FirecrawlMapLink[], limit = 8) {
-  const base = new URL(baseUrl);
-  const canonicalHome = `${base.origin}/`;
-  const normalized = new Map<string, FirecrawlMapLink>();
-  normalized.set(canonicalHome, { url: canonicalHome, title: "Homepage" });
+function normalizedInternalLinks(page: CrawlPage, baseUrl: string) {
+  const origin = new URL(baseUrl).origin;
+  const htmlLinks = Array.from(page.html.matchAll(/href\s*=\s*["']([^"']+)["']/gi)).map((match) => match[1]);
+  return new Set([...page.links, ...htmlLinks].flatMap((raw) => {
+    try {
+      const parsed = new URL(raw, page.url);
+      if (parsed.origin !== origin) return [];
+      parsed.hash = "";
+      parsed.search = "";
+      parsed.pathname = parsed.pathname.replace(/\/$/, "") || "/";
+      return [parsed.toString()];
+    } catch {
+      return [];
+    }
+  }));
+}
 
+function journeyBuckets(baseUrl: string, links: FirecrawlMapLink[]) {
+  const buckets = new Map<JourneyRole, Array<FirecrawlMapLink & { url: string }>>();
   for (const link of links) {
     if (!link.url || STATIC_ASSET.test(link.url)) continue;
     try {
       const parsed = new URL(link.url, baseUrl);
-      if (parsed.origin !== base.origin) continue;
+      if (parsed.origin !== new URL(baseUrl).origin) continue;
       parsed.hash = "";
       parsed.search = "";
       parsed.pathname = parsed.pathname.replace(/\/$/, "") || "/";
-      normalized.set(parsed.toString(), { ...link, url: parsed.toString() });
+      const normalized = { ...link, url: parsed.toString() };
+      const role = representativeKind(normalized, baseUrl);
+      const bucket = buckets.get(role) || [];
+      if (!bucket.some((item) => item.url === normalized.url)) bucket.push(normalized);
+      buckets.set(role, bucket);
     } catch {
       continue;
     }
   }
+  for (const [role, bucket] of buckets) bucket.sort((a, b) => representativeScore(b, role) - representativeScore(a, role));
+  return buckets;
+}
 
-  const buckets = new Map<RepresentativeKind, Array<FirecrawlMapLink & { url: string }>>();
-  for (const link of normalized.values()) {
-    if (!link.url) continue;
-    const kind = representativeKind(link, baseUrl);
-    const bucket = buckets.get(kind) || [];
-    bucket.push(link as FirecrawlMapLink & { url: string });
-    buckets.set(kind, bucket);
-  }
-  for (const [kind, bucket] of buckets) bucket.sort((a, b) => representativeScore(b, kind) - representativeScore(a, kind));
+function chooseJourneyCandidate(
+  role: JourneyRole,
+  currentPage: CrawlPage,
+  buckets: Map<JourneyRole, Array<FirecrawlMapLink & { url: string }>>,
+  baseUrl: string,
+  visited: Set<string>,
+) {
+  const candidates = (buckets.get(role) || []).filter((item) => !visited.has(item.url));
+  const linked = normalizedInternalLinks(currentPage, baseUrl);
+  return candidates.find((item) => linked.has(item.url)) || candidates[0] || null;
+}
 
-  const order: RepresentativeKind[] = ["homepage", "category", "service", "product", "cart", "checkout", "conversion", "pricing", "trust"];
-  const selected: string[] = [];
-  for (const kind of order) {
-    const candidate = buckets.get(kind)?.[0];
-    if (candidate && !selected.includes(candidate.url)) selected.push(candidate.url);
-    if (selected.length >= limit) break;
+async function crawlOneRepresentativeJourney(
+  homepage: CrawlPage,
+  mappedLinks: FirecrawlMapLink[],
+  model: CommercialModel,
+  apiKey: string,
+) {
+  const pages = [homepage];
+  const visited = new Set([normalizeAndValidateUrl(homepage.url)]);
+  const buckets = journeyBuckets(homepage.url, mappedLinks);
+  const roles = journeyRolesForModel(model).filter((role) => role !== "homepage");
+  let current = homepage;
+
+  for (const role of roles) {
+    const candidate = chooseJourneyCandidate(role, current, buckets, homepage.url, visited);
+    if (!candidate) continue;
+    try {
+      const page = await scrapePage(candidate.url, apiKey, 7_000);
+      pages.push(page);
+      visited.add(candidate.url);
+      current = page;
+      if (role === "checkout" || role === "conversion") break;
+    } catch {
+      continue;
+    }
   }
-  return selected.slice(0, limit);
+  return pages.slice(0, 8);
 }
 
 export async function crawlWebsite(url: string, apiKey: string): Promise<CrawlPage[]> {
   try {
+    const homepage = await scrapePage(url, apiKey, 8_000);
+    const model = classifyCommercialModel([homepage]);
     const mapResponse = await fetch(`${FIRECRAWL_BASE_URL}/map`, {
       method: "POST",
       headers: headers(apiKey),
@@ -281,19 +322,14 @@ export async function crawlWebsite(url: string, apiKey: string): Promise<CrawlPa
         ignoreQueryParameters: true,
         limit: 200,
         location: { country: "NL", languages: ["nl-NL", "en-US"] },
-        timeout: 15_000,
+        timeout: 10_000,
       }),
-      signal: AbortSignal.timeout(16_000),
+      signal: AbortSignal.timeout(11_000),
     });
     if (!mapResponse.ok) throw new Error(await readError(mapResponse));
     const mapped = (await mapResponse.json()) as FirecrawlMapResponse;
     if (!mapped.success) throw new Error(mapped.error || "The website map was unavailable.");
-    const selectedUrls = selectRepresentativeUrls(url, mapped.links || [], 8);
-    const settled = await Promise.allSettled(selectedUrls.map((selectedUrl) => scrapePage(selectedUrl, apiKey, 12_000)));
-    const pages = settled
-      .filter((item): item is PromiseFulfilledResult<CrawlPage> => item.status === "fulfilled")
-      .map((item) => item.value);
-    if (!pages.length) throw new Error("No representative journey pages could be read.");
+    const pages = await crawlOneRepresentativeJourney(homepage, mapped.links || [], model, apiKey);
     return pages;
   } catch (targetedError) {
     const recovered = await Promise.allSettled([
