@@ -18,6 +18,7 @@ export type JourneyStage = {
 };
 
 export type CustomerJourney = {
+  status: "complete" | "incomplete";
   name: string;
   conversionType: ConversionType;
   startUrl: string;
@@ -88,6 +89,7 @@ export type ReadinessCategory = {
   confidence: Confidence;
   explanation: string;
   evidence: Evidence[];
+  recommendation?: string;
 };
 
 export type ReadinessCalculation = {
@@ -132,6 +134,13 @@ export type PublicSearchCompetitor = {
   metrics: CompetitorMetric[];
 };
 
+export type RejectedCompetitor = {
+  name: string;
+  url: string;
+  reason: string;
+  crawled: boolean;
+};
+
 export type ReportOverview = {
   score: number | null;
   status: "Strong" | "Mixed" | "Needs attention" | "Insufficient data";
@@ -150,6 +159,7 @@ export type CompetitorAnalysis = {
   entity: ResolvedCompanyEntity;
   note: string;
   competitors: PublicSearchCompetitor[];
+  rejected: RejectedCompetitor[];
 };
 
 export type ResolvedCompanyEntity = {

@@ -1,4 +1,4 @@
-import type { CrawlPage } from "./types";
+import type { CrawlPage, RejectedCompetitor } from "./types";
 import { buildCompetitorSearchQuery, competitorCandidateScore } from "./entity";
 import type { ResolvedCompanyEntity } from "./types";
 import { classifyCommercialModel } from "./journey-model";
@@ -66,6 +66,11 @@ export type CompetitorSiteCrawl = {
   pages: CrawlPage[];
 };
 
+export type CompetitorDiscoveryResult = {
+  accepted: CompetitorSiteCrawl[];
+  rejected: RejectedCompetitor[];
+};
+
 const FIRECRAWL_BASE_URL = "https://api.firecrawl.dev/v2";
 const POLL_INTERVAL_MS = 1100;
 
@@ -76,6 +81,7 @@ export type CrawlOptions = {
   mapTimeout?: number;
   pageTimeout?: number;
   fallbackWait?: number;
+  followLinkedJourney?: boolean;
 };
 
 function headers(apiKey: string) {
@@ -217,7 +223,7 @@ function representativeKind(link: FirecrawlMapLink, baseUrl: string): JourneyRol
   if (/\/(cart|basket|bag|winkelmand|mandje)(\/|$)/i.test(path)) return "cart";
   if (/\/(contact|offerte|quote|booking|boeken|afspraak|demo|aanvraag|application|apply|signup|register|trial)(\/|$)/i.test(path)) return "conversion";
   if (/\/(products?|product|p|artikel|item)(\/|$)/i.test(path) || /\b(product detail|artikelnummer|in winkelmand|add to cart|sku)\b/i.test(text) || (PRICE_SIGNAL.test(text) && path.split("/").filter(Boolean).length >= 2)) return "product";
-  if (/\/(collections?|collecties?|categories?|categorie|catalogus|shop|winkel|assortiment)(\/|$)/i.test(path) || /\b(collectie|categorie|assortiment|shop all|bekijk alles)\b/i.test(text)) return "category";
+  if (/\/(collections?|collecties?|categories?|categorie|catalogus|shop|winkel|assortiment|search|zoeken?|zoekresultaten?)(\/|$)/i.test(path) || /\b(collectie|categorie|assortiment|shop all|bekijk alles|zoekresultaten)\b/i.test(text)) return "category";
   if (/\/(diensten?|services?|oplossingen?|solutions?)(\/|$)/i.test(path)) return "service";
   if (/\/(pricing|prijzen|tarieven|abonnementen)(\/|$)/i.test(path)) return "pricing";
   if (/\/(delivery|shipping|bezorg|retour|returns?|garantie|guarantee|faq|veelgestelde-vragen|keurmerken?)(\/|$)/i.test(path)) return "trust";
@@ -367,11 +373,42 @@ async function crawlRepresentativePages(
   apiKey: string,
   limit = 8,
   pageTimeout = 5_500,
+  followLinkedJourney = true,
 ) {
   const pages = [homepage];
   const visited = new Set([normalizeAndValidateUrl(homepage.url)]);
   const buckets = journeyBuckets(homepage.url, mappedLinks);
   const roles = representativePlan(model);
+
+  if (followLinkedJourney && (model === "ecommerce" || model === "marketplace")) {
+    let current = homepage;
+    for (const role of ["category", "product"] as JourneyRole[]) {
+      if (pages.length >= limit) break;
+      const candidate = chooseJourneyCandidate(role, current, buckets, homepage.url, visited);
+      if (!candidate) continue;
+      visited.add(candidate.url);
+      try {
+        const page = await scrapePage(candidate.url, apiKey, pageTimeout);
+        pages.push(page);
+        current = page;
+      } catch {
+        continue;
+      }
+    }
+
+    const remaining: Array<FirecrawlMapLink & { url: string }> = [];
+    for (const role of roles.filter((role) => role !== "category" && role !== "product")) {
+      const candidate = chooseJourneyCandidate(role, current, buckets, homepage.url, visited);
+      if (!candidate) continue;
+      remaining.push(candidate);
+      visited.add(candidate.url);
+      if (pages.length + remaining.length >= limit) break;
+    }
+    const settled = await Promise.allSettled(remaining.map((candidate) => scrapePage(candidate.url, apiKey, pageTimeout)));
+    pages.push(...settled.filter((item): item is PromiseFulfilledResult<CrawlPage> => item.status === "fulfilled").map((item) => item.value));
+    return selectRepresentativeResults(pages, homepage.url, limit);
+  }
+
   const candidates: Array<FirecrawlMapLink & { url: string }> = [];
 
   for (const role of roles) {
@@ -391,9 +428,10 @@ export async function crawlWebsite(url: string, apiKey: string, options: CrawlOp
   const rootUrl = new URL(normalizeAndValidateUrl(url)).origin;
   const limit = Math.min(8, Math.max(1, options.limit ?? 8));
   const allowFallback = options.allowFallback ?? true;
-  const homepageTimeout = options.homepageTimeout ?? 7_000;
-  const mapTimeout = options.mapTimeout ?? 7_000;
-  const pageTimeout = options.pageTimeout ?? 5_500;
+  const homepageTimeout = options.homepageTimeout ?? 6_000;
+  const mapTimeout = options.mapTimeout ?? 5_000;
+  const pageTimeout = options.pageTimeout ?? 4_000;
+  const followLinkedJourney = options.followLinkedJourney ?? true;
   let homepage: CrawlPage;
 
   try {
@@ -423,7 +461,7 @@ export async function crawlWebsite(url: string, apiKey: string, options: CrawlOp
     const mapped = (await mapResponse.json()) as FirecrawlMapResponse;
     if (!mapped.success) return [homepage];
     const model = classifyCommercialModel([homepage]);
-    const pages = await crawlRepresentativePages(homepage, mapped.links || [], model, apiKey, limit, pageTimeout);
+    const pages = await crawlRepresentativePages(homepage, mapped.links || [], model, apiKey, limit, pageTimeout, followLinkedJourney);
     return pages;
   } catch {
     return [homepage];
@@ -438,7 +476,7 @@ export async function discoverCompetitorPages(
   entity: ResolvedCompanyEntity,
   ownUrl: string,
   apiKey: string,
-): Promise<CompetitorSiteCrawl[]> {
+): Promise<CompetitorDiscoveryResult> {
   const query = buildCompetitorSearchQuery(entity);
   const response = await fetch(`${FIRECRAWL_BASE_URL}/search`, {
     method: "POST",
@@ -449,11 +487,11 @@ export async function discoverCompetitorPages(
       sources: ["web"],
       country: "NL",
       location: "Netherlands",
-      timeout: 6_000,
+      timeout: 4_500,
       ignoreInvalidURLs: true,
       excludeDomains: [new URL(ownUrl).hostname],
     }),
-    signal: AbortSignal.timeout(7_000),
+    signal: AbortSignal.timeout(5_500),
   });
 
   if (!response.ok) throw new Error(await readError(response));
@@ -462,44 +500,75 @@ export async function discoverCompetitorPages(
 
   const ownOrigin = new URL(ownUrl).origin;
   const seenOrigins = new Set<string>();
-  const candidates = (result.data?.web || [])
-    .filter((candidate): candidate is FirecrawlSearchResult & { url: string } => Boolean(candidate.url))
-    .filter((candidate) => {
-      try {
-        const normalized = normalizeAndValidateUrl(candidate.url);
-        const parsed = new URL(normalized);
-        return parsed.origin !== ownOrigin && !EXCLUDED_COMPETITOR_HOSTS.test(parsed.hostname) && !NON_COMMERCIAL_RESULT.test(parsed.pathname);
-      } catch {
-        return false;
-      }
-    })
-    .map((candidate) => ({ candidate, score: competitorCandidateScore(entity, candidate) }))
-    .filter((item) => item.score >= 5)
-    .sort((a, b) => b.score - a.score)
-    .map((item) => item.candidate)
-    .filter((candidate) => {
-      const origin = new URL(candidate.url).origin;
-      if (seenOrigins.has(origin)) return false;
-      seenOrigins.add(origin);
-      return true;
-    })
-    .slice(0, 3);
+  const rejected: RejectedCompetitor[] = [];
+  const companyKey = entity.companyName.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const ownDomainKey = entity.domain.toLowerCase().replace(/^www\./, "").split(".").slice(0, -1).join("").replace(/[^a-z0-9]/g, "");
+  const ranked: Array<{ candidate: FirecrawlSearchResult & { url: string }; score: number }> = [];
+
+  for (const candidate of (result.data?.web || []).filter((item): item is FirecrawlSearchResult & { url: string } => Boolean(item.url))) {
+    const name = candidate.title?.slice(0, 100) || candidate.url.slice(0, 100);
+    let parsed: URL;
+    try {
+      parsed = new URL(normalizeAndValidateUrl(candidate.url));
+    } catch {
+      rejected.push({ name, url: candidate.url, reason: "Invalid or unsafe public URL.", crawled: false });
+      continue;
+    }
+    const origin = parsed.origin;
+    const candidateDomainKey = parsed.hostname.replace(/^www\./, "").split(".").slice(0, -1).join("").replace(/[^a-z0-9]/g, "");
+    const titleKey = (candidate.title || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (EXCLUDED_COMPETITOR_HOSTS.test(parsed.hostname) || NON_COMMERCIAL_RESULT.test(parsed.pathname)) {
+      rejected.push({ name, url: candidate.url, reason: "Directory, blog, review site or other non-commercial result.", crawled: false });
+      continue;
+    }
+    if (origin === ownOrigin || (ownDomainKey.length >= 5 && candidateDomainKey === ownDomainKey) || (companyKey.length >= 6 && titleKey.includes(companyKey))) {
+      rejected.push({ name, url: candidate.url, reason: "Same company or a regional version of the submitted company.", crawled: false });
+      continue;
+    }
+    if (/\.(be|de|fr|uk|co\.uk)$/i.test(parsed.hostname) && !/\b(nederland|netherlands|nederlandse)\b/i.test(`${candidate.title} ${candidate.description}`)) {
+      rejected.push({ name, url: candidate.url, reason: "Different country market.", crawled: false });
+      continue;
+    }
+    if (seenOrigins.has(origin)) {
+      rejected.push({ name, url: candidate.url, reason: "Duplicate result from a domain already evaluated.", crawled: false });
+      continue;
+    }
+    seenOrigins.add(origin);
+    const score = competitorCandidateScore(entity, candidate);
+    if (score < 5) {
+      rejected.push({ name, url: candidate.url, reason: "Insufficient industry, offer, geography or target-customer match.", crawled: false });
+      continue;
+    }
+    ranked.push({ candidate, score });
+  }
+
+  ranked.sort((a, b) => b.score - a.score);
+  const candidates = ranked.slice(0, 2).map((item) => item.candidate);
+  for (const item of ranked.slice(2)) {
+    rejected.push({ name: item.candidate.title || new URL(item.candidate.url).hostname, url: item.candidate.url, reason: "Lower-ranked matching result; only two competitors are included.", crawled: false });
+  }
 
   const settled = await Promise.allSettled(candidates.map(async (candidate): Promise<CompetitorSiteCrawl> => {
     const origin = new URL(candidate.url).origin;
     const pages = await crawlWebsite(origin, apiKey, {
       limit: 5,
       allowFallback: false,
-      homepageTimeout: 4_000,
-      mapTimeout: 4_500,
-      pageTimeout: 4_000,
+      homepageTimeout: 3_500,
+      mapTimeout: 3_500,
+      pageTimeout: 3_000,
+      followLinkedJourney: false,
     });
     return { seedUrl: candidate.url, pages };
   }));
-  return settled
-    .filter((item): item is PromiseFulfilledResult<CompetitorSiteCrawl> => item.status === "fulfilled")
-    .map((item) => item.value)
-    .filter((site) => {
+
+  const accepted: CompetitorSiteCrawl[] = [];
+  settled.forEach((item, index) => {
+    const candidate = candidates[index];
+    if (item.status === "rejected") {
+      rejected.push({ name: candidate.title || new URL(candidate.url).hostname, url: candidate.url, reason: "The accepted competitor domain could not be read within the crawl budget.", crawled: true });
+      return;
+    }
+    const site = item.value;
       const aggregate = site.pages.map((page) => `${page.title} ${page.description} ${page.markdown.slice(0, 1200)}`).join(" ");
       const model = classifyCommercialModel(site.pages);
       const modelMatches = entity.businessModel === "retail-ecommerce"
@@ -516,11 +585,17 @@ export async function discoverCompetitorPages(
       const candidateConsumer = /\b(b2c|particulieren|consumenten|woningeigenaren|gezinnen|thuis)\b/i.test(aggregate);
       const differentTargetMarket = /\b(bedrijven|zakelijk|b2b)\b/i.test(target) && candidateConsumer && !candidateBusiness
         || /\b(particulieren|consumenten|b2c)\b/i.test(target) && candidateBusiness && !candidateConsumer;
-      return site.pages.length > 0 && modelMatches && sameGeography && !differentTargetMarket && competitorCandidateScore(entity, {
+      const finalScore = competitorCandidateScore(entity, {
         title: site.pages[0]?.title,
         description: aggregate,
         url: site.seedUrl,
-      }) >= 5;
-    })
-    .slice(0, 2);
+      });
+    if (!site.pages.length || !modelMatches || !sameGeography || differentTargetMarket || finalScore < 5) {
+      rejected.push({ name: candidate.title || new URL(candidate.url).hostname, url: candidate.url, reason: !modelMatches ? "Crawled evidence indicates a different business model." : !sameGeography ? "Crawled evidence indicates a different geographic market." : differentTargetMarket ? "Crawled evidence indicates a different target customer." : "Crawled evidence did not confirm sufficient industry and offer overlap.", crawled: true });
+      return;
+    }
+    accepted.push(site);
+  });
+
+  return { accepted: accepted.slice(0, 2), rejected };
 }

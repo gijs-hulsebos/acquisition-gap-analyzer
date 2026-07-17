@@ -564,6 +564,12 @@ a { color: inherit; }
 .competitor-heading { margin-bottom: 11px; }
 .competitor-heading h2 { font-size: 23px; }
 .competitor-summary { margin: 0 0 10px; padding: 10px 13px; border: 1px solid rgba(179,126,215,.11); border-radius: 9px; color: #aea2b5; background: rgba(91,58,112,.055); font-size: 10px; line-height: 1.45; }
+.competitor-rejections { margin-top: 10px; border: 1px solid rgba(211,188,235,.08); border-radius: 9px; color: #92879a; }
+.competitor-rejections > summary { padding: 10px 12px; cursor: pointer; font-size: 9px; }
+.competitor-rejections > div { padding: 0 12px 10px; display: grid; gap: 7px; }
+.competitor-rejections p { margin: 0; display: grid; gap: 2px; font-size: 9px; }
+.competitor-rejections a { display: inline-flex; align-items: center; gap: 4px; color: #c9b3d5; }
+.competitor-rejections span { color: #786f7d; }
 .competitor-table-row { min-height: 44px; }
 .competitor-table-head { min-height: 59px; }
 .competitor-table footer { padding-top: 9px; padding-bottom: 9px; }

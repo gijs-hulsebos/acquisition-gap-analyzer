@@ -68,7 +68,7 @@ export const DEMO_RESULT: AnalysisResult = {
       confidence: "High",
       method: "openrouter",
     },
-    note: "Resolved Noordlicht Klimaattechniek as HVAC and climate installation, then selected matching Dutch public-search businesses with the same market profile. Only one commercial page per domain was checked.",
+    note: "Resolved Noordlicht Klimaattechniek as HVAC and climate installation, then applied the same three deterministic checks to representative pages from two matching Dutch public-search competitors.",
     competitors: [
       {
         name: "Rijnstad Warmtepompen",
@@ -117,12 +117,14 @@ export const DEMO_RESULT: AnalysisResult = {
         ],
       },
     ],
+    rejected: [],
   },
   journey: {
     businessModels: ["Lead generation", "Local service business"],
     primaryOffer: "Warmtepompinstallatie voor woningen",
     primaryConversionType: "Quote request",
     primary: {
+      status: "complete",
       name: "Quote request journey",
       conversionType: "Quote request",
       startUrl: "https://noordlicht-klimaat.example/",

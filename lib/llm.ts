@@ -97,6 +97,9 @@ export async function enhanceFindings(
       ...result,
       llmEnhanced: true,
       gaps: result.gaps.map((gap) => {
+        if (gap.id === "offer-clarity" || (gap.id === "customer-journey-path" && result.journey.primary.status === "incomplete")) {
+          return gap;
+        }
         const rewrite = rewrites.get(gap.id);
         return rewrite
           ? { ...gap, summary: rewrite.summary, nextAction: rewrite.nextAction }

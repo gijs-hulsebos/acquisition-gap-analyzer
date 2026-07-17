@@ -12,7 +12,7 @@ The result is an MVP heuristic based on public website evidence. It is not conve
 - Homepage-first business classification followed by up to eight representative same-domain pages
 - Extraction of homepage, service/contact pages, CTAs, forms and internal links
 - Three-metric weighted conversion-readiness overview
-- Structured primary customer journey with required clicks, additional observable actions and ordered stages
+- Structured primary customer journey with every required user action and an explicit complete/incomplete status
 - Exactly three evidence-backed findings: Offer Clarity, CTA Clarity and Customer Journey Path
 - Visible trust-signal analysis on important commercial pages
 - Entity-first comparison with up to two matching Dutch public-search competitors, each checked across representative pages
@@ -23,9 +23,9 @@ The result is an MVP heuristic based on public website evidence. It is not conve
 
 | Category | Weight | What is measured |
 | --- | ---: | --- |
-| Offer Clarity | 35% | Whether the title, main heading and description make the offer immediately understandable |
+| Offer Clarity | 35% | Whether a new visitor can identify what is sold, who it is for and why they should choose it from headings, supporting copy and representative offer pages |
 | CTA Clarity | 30% | Whether the landing page exposes a specific commercial action rather than generic prompts |
-| Customer Journey Path | 35% | Shortest evidenced route from arrival to the primary conversion interface |
+| Customer Journey Path | 35% | A fully evidenced route from arrival to the primary conversion interface, including state-changing actions such as add to cart |
 
 The score is calculated as:
 
@@ -45,12 +45,12 @@ The JSON response always contains the overview and the same three findings in th
 4. A model-specific representative-page plan is loaded. Ecommerce prioritizes category, one product, cart, checkout and trust/returns pages; services prioritize service overview/detail, quote/contact and trust/pricing pages; software prioritizes pricing, product/service, signup/demo and trust pages.
 5. Firecrawl Map is used only as a same-domain lookup for those representative roles.
 6. At most one representative product page is retained, preventing a product catalogue from crowding out journey evidence. Up to eight useful pages are returned.
-7. A graph of those journey pages, links and observable cart/checkout actions is used to calculate the shortest realistic route.
+7. Ecommerce verifies one complete route: homepage → category/search → product → add to cart → cart → checkout. Every link or button must be present, a directly requested empty cart is never treated as converted state, and missing proof produces `Incomplete journey`.
 8. The deterministic layer scores Offer Clarity, CTA Clarity and Customer Journey Path and emits the stable JSON report contract.
 9. The company entity is resolved from first-party evidence into business type, primary offer, geography and target customer.
-10. Firecrawl Search uses that resolved market profile instead of raw keywords and rejects directories, editorial/review results, incompatible business models, different local markets and unrelated offerings.
-11. Up to two accepted competitor domains receive the same bounded representative crawl and the exact same three deterministic checks as the submitted company.
-12. If OpenRouter is configured, it may rewrite summaries and recommended actions. IDs, titles, evidence, scores, severity and ranking remain unchanged.
+10. Firecrawl Search uses that resolved market profile instead of raw keywords. Same-company regional sites, directories, editorial/review results, incompatible industries, different country/local markets and unrelated offers are rejected before crawling.
+11. Only the top two accepted competitor domains are crawled. Any accepted domain later rejected by crawled evidence is retained in the report with its rejection reason.
+12. Accepted competitors receive the exact same Offer Clarity, CTA Clarity and Customer Journey Path checks as the submitted company. OpenRouter cannot replace the deterministic offer conclusion or an incomplete journey finding.
 
 If competitor discovery or OpenRouter fails, the deterministic website report is still returned.
 
@@ -64,6 +64,7 @@ The current MVP:
 - Analyzes at most eight representative journey pages after mapping the domain.
 - Cannot confirm a conversion route that passes through pages outside the selected page set.
 - Never places an order, creates an account, books an appointment or submits a form.
+- Because no product is actually added, ecommerce checkout is only marked complete when public HTML exposes every required action and a non-empty representative cart state; otherwise the result is explicitly incomplete.
 - May not observe personalized, logged-in, payment or JavaScript-only steps.
 - Uses HTML/text heuristics rather than real visitor behaviour or conversion analytics.
 - Resolves and filters competitor candidates more strictly, but still labels them `Likely public search competitors`; public evidence cannot confirm that they are direct commercial competitors.

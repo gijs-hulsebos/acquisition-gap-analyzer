@@ -439,7 +439,7 @@ function ConversionReadiness({ result }: { result: AnalysisResult }) {
         <div className="readiness-title-line">
           <h2 id="readiness-heading">{result.scoreLabel}</h2>
         </div>
-        <p>{readinessExplanation(result.score)}</p>
+        <p>{result.journey.businessModels.includes("Ecommerce") && result.journey.primary.status === "incomplete" ? "Purchase path not verified." : readinessExplanation(result.score)}</p>
       </div>
       <div className="readiness-context">
         <div><span><ShieldCheck size={13} /> {result.confidence} confidence</span><small>MVP heuristic · public website evidence</small></div>
@@ -456,13 +456,13 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
     return stages.find((stage) => stage.friction)?.order || stages[0]?.order || 1;
   });
   const activeStage = stages.find((stage) => stage.order === activeStageId) || stages[0];
-  const clickLabel = journey.clicksToInterface === null ? "Path unconfirmed" : `${journey.clicksToInterface} required click${journey.clicksToInterface === 1 ? "" : "s"}`;
+  const clickLabel = journey.status === "incomplete" ? "Incomplete journey" : journey.clicksToInterface === null ? "Path unconfirmed" : `${journey.clicksToInterface} required action${journey.clicksToInterface === 1 ? "" : "s"}`;
   const journeySummary = journey.additionalObservableActions === null ? clickLabel : `${clickLabel} · ${journey.additionalObservableActions} additional action${journey.additionalObservableActions === 1 ? "" : "s"}`;
 
   return (
     <section className="journey-panel" aria-labelledby="journey-heading">
       <header className="journey-heading">
-        <div><span>Customer journey</span><h2 id="journey-heading">Visitor → {result.journey.primaryConversionType.toLowerCase()}</h2></div>
+        <div><span>Customer journey</span><h2 id="journey-heading">{journey.status === "incomplete" ? "Incomplete journey" : `Visitor → ${result.journey.primaryConversionType.toLowerCase()}`}</h2></div>
         <small>{journeySummary}</small>
       </header>
       <div className="journey-flow" role="group" aria-label="Representative customer journey" style={{ "--journey-columns": Math.max(stages.length, 1) } as CSSProperties}>
@@ -495,6 +495,7 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
 
 function CompetitorComparison({ result }: { result: AnalysisResult }) {
   const competitors = result.competitors.competitors;
+  const rejected = result.competitors.rejected;
   const rows = result.gaps.map((siteFinding) => ({
     siteFinding,
     competitorFindings: competitors.map((competitor) => competitor.findings.find((finding) => finding.id === siteFinding.id)),
@@ -541,6 +542,16 @@ function CompetitorComparison({ result }: { result: AnalysisResult }) {
         </div>
       ) : (
         <div className="competitor-empty"><Search size={18} /><span>{result.competitors.note}</span></div>
+      )}
+      {rejected.length > 0 && (
+        <details className="competitor-rejections">
+          <summary>{rejected.length} public-search result{rejected.length === 1 ? "" : "s"} rejected</summary>
+          <div>
+            {rejected.map((item, index) => (
+              <p key={`${item.url}-${index}`}><a href={item.url} target="_blank" rel="noreferrer">{item.name}<ExternalLink size={10} /></a><span>{item.reason}{item.crawled ? " · Crawl attempted" : " · Not crawled"}</span></p>
+            ))}
+          </div>
+        </details>
       )}
     </section>
   );

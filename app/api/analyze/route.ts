@@ -88,15 +88,19 @@ export async function POST(request: Request) {
       },
     };
     let compared = entityResolved;
-    const competitorBudget = Math.min(18_000, 49_000 - (Date.now() - startedAt));
+    const competitorBudget = Math.min(19_000, 50_000 - (Date.now() - startedAt));
     if (competitorBudget >= 4_000) {
       try {
-        const competitorSites = await within(
+        const discovery = await within(
           discoverCompetitorPages(entity, url, firecrawlKey),
           competitorBudget,
           "Competitor discovery timed out.",
         );
-        compared = applyCompetitorAnalysis(entityResolved, competitorSites);
+        const withComparisons = applyCompetitorAnalysis(entityResolved, discovery.accepted);
+        compared = {
+          ...withComparisons,
+          competitors: { ...withComparisons.competitors, rejected: discovery.rejected },
+        };
       } catch {
         compared = {
           ...entityResolved,

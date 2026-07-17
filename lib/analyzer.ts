@@ -17,7 +17,7 @@ import { normalizePageUrl } from "./url";
 import { classifyCommercialModel, publicBusinessModels } from "./journey-model";
 import type { CommercialModel } from "./journey-model";
 
-type Clickable = { text: string; href: string | null };
+type Clickable = { text: string; href: string | null; element: "link" | "button" };
 type FormFacts = { fieldCount: number; requiredCount: number; purpose: "conversion" | "search" | "newsletter" | "login" | "utility"; isConversion: boolean };
 type PageFacts = CrawlPage & {
   normalizedUrl: string;
@@ -124,7 +124,11 @@ function extractClickables(html: string): Clickable[] {
   while ((match = pattern.exec(html))) {
     const text = cleanText(match[3]);
     if (!text || text.length > 90) continue;
-    items.push({ text, href: getAttribute(match[2], "href") });
+    items.push({
+      text,
+      href: getAttribute(match[2], "href") || getAttribute(match[2], "formaction"),
+      element: match[1].toLowerCase() === "a" ? "link" : "button",
+    });
   }
 
   return items;
@@ -277,14 +281,23 @@ function inferCompanyName(homepage: PageFacts) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function inferPrimaryService(homepage: PageFacts, servicePages: PageFacts[]) {
+function inferPrimaryService(homepage: PageFacts, servicePages: PageFacts[], pages: PageFacts[], commercialModel: CommercialModel) {
+  if (commercialModel === "ecommerce" || commercialModel === "marketplace") {
+    const labels = pages
+      .filter((page) => ["Category", "Product"].includes(journeyPageType(page, homepage)))
+      .map((page) => (page.h1 || page.title).split(/\s+[|—–-]\s+/)[0].trim())
+      .filter(Boolean)
+      .slice(0, 3);
+    if (labels.length) return `Online assortment: ${labels.join(", ")}`.slice(0, 110);
+    if (homepage.description) return homepage.description.split(/[.!?]/)[0].slice(0, 110);
+  }
   if (homepage.h1 && homepage.h1.length <= 110) return homepage.h1;
   if (servicePages[0]?.title) return servicePages[0].title.split(/\s+[|—–-]\s+/)[0].slice(0, 100);
   if (homepage.description) return homepage.description.split(/[.!?]/)[0].slice(0, 110);
   return "Primary business service";
 }
 
-function inferMarket(pages: PageFacts[]) {
+function inferMarket(pages: PageFacts[], commercialModel: CommercialModel) {
   const text = pages.map((page) => page.bodyText).join(" ");
   const cities = [
     "Amsterdam", "Rotterdam", "Den Haag", "Utrecht", "Eindhoven", "Groningen", "Tilburg",
@@ -295,7 +308,7 @@ function inferMarket(pages: PageFacts[]) {
   const geography = /\b(heel|door heel) nederland\b/i.test(text) ? "Nederland" : city || "Nederland";
   const business = /\b(mkb|bedrijven|zakelijk|ondernemers|organisaties|b2b)\b/i.test(text);
   const consumer = /\b(particulieren|consumenten|woningeigenaren|huiseigenaren|gezinnen|thuis)\b/i.test(text);
-  const targetCustomer = business && consumer ? "bedrijven en particulieren" : business ? "bedrijven" : consumer ? "particulieren" : "Nederlandse klanten";
+  const targetCustomer = business && consumer ? "bedrijven en particulieren" : business ? "bedrijven" : consumer || commercialModel === "ecommerce" ? "particulieren" : "Nederlandse klanten";
   return { geography, targetCustomer };
 }
 
@@ -310,6 +323,7 @@ function journeyPageType(page: PageFacts, homepage: PageFacts): JourneyPageType 
   if (/\/(application|apply|inschrijven)(\/|$)/i.test(path)) return "Application";
   if (/\/(contact)(\/|$)/i.test(path)) return "Contact";
   if (/\/(pricing|prijzen|tarieven|abonnementen)(\/|$)/i.test(path)) return "Pricing";
+  if (/\/(search|zoeken?|zoekresultaten?)(\/|$)/i.test(path)) return "Category";
   if (/\/(products?|product|p)\//i.test(path) || ADD_TO_CART.test(page.bodyText)) return "Product";
   if (/\/(collections?|collecties?|categories?|categorie|catalogus|shop|winkel)\//i.test(path)) return "Category";
   if (/\/(diensten?|services?|oplossingen?|solutions?)\//i.test(path) || /\b(service|dienst|oplossing)\b/i.test(text)) return "Service";
@@ -344,21 +358,94 @@ function journeyEdges(pages: PageFacts[], homepage: PageFacts) {
       edges.push({ from: page.normalizedUrl, to: link, action: clickable?.text ? `Click “${clickable.text}”` : "Open the next page", ctaText: clickable?.text || null, visible: Boolean(clickable?.text) });
     }
   }
-  const cart = pages.find((page) => journeyPageType(page, homepage) === "Cart");
-  const checkout = pages.find((page) => journeyPageType(page, homepage) === "Checkout");
-  if (cart) {
-    for (const page of pages.filter((candidate) => candidate.clickables.some((item) => ADD_TO_CART.test(item.text)))) {
-      if (!edges.some((edge) => edge.from === page.normalizedUrl && edge.to === cart.normalizedUrl)) {
-        const cta = page.clickables.find((item) => ADD_TO_CART.test(item.text));
-        edges.push({ from: page.normalizedUrl, to: cart.normalizedUrl, action: `Click “${cta?.text || "Add to cart"}”`, ctaText: cta?.text || "Add to cart", visible: true });
-      }
-    }
-  }
-  if (cart && checkout && !edges.some((edge) => edge.from === cart.normalizedUrl && edge.to === checkout.normalizedUrl)) {
-    const cta = cart.clickables.find((item) => CHECKOUT_ACTION.test(item.text));
-    if (cta) edges.push({ from: cart.normalizedUrl, to: checkout.normalizedUrl, action: `Click “${cta.text}”`, ctaText: cta.text, visible: true });
-  }
   return edges;
+}
+
+function linkedAction(from: PageFacts, to: PageFacts) {
+  return from.clickables.find((item) => item.href && normalizePageUrl(item.href, from.url) === to.normalizedUrl) || null;
+}
+
+function buildEcommerceJourney(pages: PageFacts[], homepage: PageFacts, primaryService: string): JourneyAnalysis {
+  const typed = pages.map((page) => ({ page, type: journeyPageType(page, homepage) }));
+  const category = typed.find((item) => item.type === "Category" && linkedAction(homepage, item.page))?.page || null;
+  const product = category
+    ? typed.find((item) => item.type === "Product" && linkedAction(category, item.page))?.page || null
+    : null;
+  const addToCart = product?.clickables.find((item) => ADD_TO_CART.test(item.text)) || null;
+  const cart = typed.find((item) => item.type === "Cart")?.page || null;
+  const cartIsEmpty = cart ? /\b(cart|basket|bag|winkelmand(?:je)?|mandje)\s+(is\s+)?(empty|leeg)|geen\s+(artikelen|producten)\s+in\s+(je|uw|de)\s+(winkelmand|mandje)/i.test(cart.bodyText) : false;
+  const cartHasItemEvidence = cart ? !cartIsEmpty && /\b(aantal|quantity|qty|verwijder|remove|subtotal|subtotaal)\b|(?:€|eur\s*)\s*\d|cart-item|line-item/i.test(`${cart.bodyText} ${cart.html}`) : false;
+  const cartNavigation = cart && product
+    ? linkedAction(product, cart) || linkedAction(homepage, cart)
+    : null;
+  const addLeadsToCart = Boolean(addToCart?.href && cart && normalizePageUrl(addToCart.href, product?.url || homepage.url) === cart.normalizedUrl);
+  const checkout = typed.find((item) => item.type === "Checkout")?.page || null;
+  const checkoutAction = cart && checkout && cartHasItemEvidence
+    ? cart.clickables.find((item) => CHECKOUT_ACTION.test(item.text) && item.href && normalizePageUrl(item.href, cart.url) === checkout.normalizedUrl) || null
+    : null;
+
+  const missing: string[] = [];
+  if (!category) missing.push("a homepage link to a category or search-results page");
+  if (!product) missing.push("a category-to-product link");
+  if (!addToCart) missing.push("an add-to-cart button on the product page");
+  if (!cart) missing.push("a cart page");
+  if (cart && !cartHasItemEvidence) missing.push("a populated cart state");
+  if (cart && !addLeadsToCart && !cartNavigation) missing.push("a verified action from the product state to the cart");
+  if (!checkout) missing.push("a checkout page");
+  if (cart && checkout && !checkoutAction) missing.push("a checkout action from a populated cart");
+
+  const complete = missing.length === 0;
+  const stages: JourneyStage[] = [];
+  let actions = 0;
+  if (category) {
+    const action = linkedAction(homepage, category)!;
+    actions += 1;
+    stages.push({ order: stages.length + 1, pageType: "Homepage", title: homepage.title, url: homepage.url, action: `Click “${action.text}”`, ctaText: action.text, nextStepVisible: true, necessary: true, friction: null });
+  }
+  if (category && product) {
+    const action = linkedAction(category, product)!;
+    actions += 1;
+    stages.push({ order: stages.length + 1, pageType: "Category", title: category.title, url: category.url, action: `Click “${action.text}”`, ctaText: action.text, nextStepVisible: true, necessary: true, friction: null });
+  }
+  if (product && addToCart) {
+    actions += 1;
+    const action = !addLeadsToCart && cartNavigation
+      ? `Click “${addToCart.text}”, then click “${cartNavigation.text}” to open the cart`
+      : `Click “${addToCart.text}”`;
+    stages.push({ order: stages.length + 1, pageType: "Product", title: product.title, url: product.url, action, ctaText: addToCart.text, nextStepVisible: true, necessary: true, friction: addToCart.href || cartNavigation ? null : "The public HTML does not expose the action required to open the cart after adding a product." });
+  }
+  if (cart && cartNavigation && !addLeadsToCart) actions += 1;
+  if (cart) {
+    stages.push({ order: stages.length + 1, pageType: "Cart", title: cart.title, url: cart.url, action: checkoutAction ? `Click “${checkoutAction.text}”` : "Verify a populated cart and continue to checkout", ctaText: checkoutAction?.text || null, nextStepVisible: Boolean(checkoutAction), necessary: true, friction: cartIsEmpty ? "The crawled cart is empty, so checkout reachability cannot be verified." : !cartHasItemEvidence ? "No product line or quantity evidence was visible in the cart." : checkoutAction ? null : "No verified checkout action was found." });
+  }
+  if (checkoutAction && checkout) {
+    actions += 1;
+    stages.push({ order: stages.length + 1, pageType: "Checkout", title: checkout.title, url: checkout.url, action: "Reach the checkout interface", ctaText: null, nextStepVisible: true, necessary: true, friction: null });
+  }
+
+  const route = [homepage, category, product, cart, checkout].filter((page): page is PageFacts => Boolean(page)).map((page) => page.normalizedUrl);
+  return {
+    businessModels: ["Ecommerce"],
+    primaryOffer: primaryService,
+    primaryConversionType: "Checkout",
+    primary: {
+      status: complete ? "complete" : "incomplete",
+      name: complete ? "Checkout journey" : "Incomplete journey",
+      conversionType: "Checkout",
+      startUrl: homepage.url,
+      destinationUrl: complete ? checkout?.url || null : null,
+      clicksToInterface: complete ? actions : null,
+      additionalObservableActions: null,
+      stages: stages.length ? stages : [{ order: 1, pageType: "Homepage", title: homepage.title, url: homepage.url, action: "Find a category or product path", ctaText: null, nextStepVisible: false, necessary: true, friction: "No complete ecommerce journey was verified." }],
+      shortestRoute: complete ? route : [],
+      alternativeRoute: null,
+      confidence: complete ? "High" : "Low",
+      limitations: complete
+        ? ["The route is verified from public links and controls, but no purchase or payment was completed."]
+        : [`Incomplete journey: ${missing.join("; ")}.`, "The analyzer does not assume that a directly requested cart or checkout page contains a product."],
+    },
+    secondary: [],
+  };
 }
 
 function shortestJourneyRoute(homepage: PageFacts, targets: Set<string>, edges: JourneyEdge[]) {
@@ -378,6 +465,9 @@ function shortestJourneyRoute(homepage: PageFacts, targets: Set<string>, edges: 
 }
 
 function buildJourneyAnalysis(pages: PageFacts[], homepage: PageFacts, primaryService: string, commercialModel: CommercialModel): JourneyAnalysis {
+  if (commercialModel === "ecommerce" || commercialModel === "marketplace") {
+    return buildEcommerceJourney(pages, homepage, primaryService);
+  }
   const businessModels = publicBusinessModels(commercialModel, pages.map((page) => page.bodyText).join(" "));
   const typedPages = pages.map((page) => ({ page, type: journeyPageType(page, homepage), conversion: conversionTypeFor(page, journeyPageType(page, homepage)) }));
   const priority: ConversionType[] = businessModels.includes("Ecommerce")
@@ -431,6 +521,7 @@ function buildJourneyAnalysis(pages: PageFacts[], homepage: PageFacts, primarySe
     primaryOffer: primaryService,
     primaryConversionType,
     primary: {
+      status: route ? "complete" : "incomplete",
       name: primaryConversionType === "No clear conversion" ? "Primary commercial journey not confirmed" : `${primaryConversionType} journey`,
       conversionType: primaryConversionType,
       startUrl: homepage.url,
@@ -454,40 +545,55 @@ function category(
   confidence: Confidence,
   explanation: string,
   evidence: Evidence[],
+  recommendation?: string,
 ): ReadinessCategory {
-  return { id, label, score, weight: CATEGORY_WEIGHTS[id], confidence, explanation, evidence };
+  return { id, label, score, weight: CATEGORY_WEIGHTS[id], confidence, explanation, evidence, recommendation };
 }
 
-function offerCategory(homepage: PageFacts, pages: PageFacts[], primaryService: string) {
+function firstSnippet(text: string, pattern: RegExp) {
+  return text.split(/(?<=[.!?])\s+/).map((sentence) => sentence.trim()).find((sentence) => pattern.test(sentence))?.slice(0, 180) || null;
+}
+
+function offerCategory(homepage: PageFacts, pages: PageFacts[], primaryService: string, targetCustomer: string) {
   const h1 = homepage.h1.trim();
-  const title = homepage.title.trim();
-  const description = homepage.description.trim();
   const generic = /^(home(page)?|welkom|welcome|dille\s*&\s*kamille)$/i;
-  const offerTokens = meaningfulTokens(`${h1} ${primaryService}`).slice(0, 6);
-  const sources = [title, h1, description].filter(Boolean);
-  const repeatedSources = sources.filter((source) => offerTokens.some((token) => source.toLowerCase().includes(token))).length;
-
-  let score = 10;
-  if (h1.length >= 12 && h1.length <= 120 && !generic.test(h1)) score += 35;
-  if (title.length >= 8 && !generic.test(title)) score += 20;
-  if (description.length >= 45) score += 20;
-  if (repeatedSources >= 2) score += 15;
-  score = Math.min(100, score);
-
-  const explanation = score >= 80
-    ? "The landing page states the offer clearly and repeats it in key page copy."
-    : score >= 60
-      ? "The main offer is present, but visitors may need supporting copy to understand it immediately."
-      : "The landing page does not make the primary offer immediately clear from its main heading and metadata.";
-  const statement = `Offer clarity scored ${score}/100 from the page title, primary heading and description. ${h1 ? `Detected heading: “${h1}”.` : "No readable H1 heading was detected."}`;
+  const offerPages = pages.filter((page) => ["Category", "Service", "Product"].includes(journeyPageType(page, homepage)));
+  const offerLabels = offerPages.slice(0, 4).map((page) => page.h1 || page.title).filter(Boolean);
+  const combined = [homepage.h1, homepage.description, homepage.bodyText.slice(0, 1800), ...offerPages.slice(0, 3).map((page) => `${page.h1} ${page.description} ${page.bodyText.slice(0, 700)}`)].join(" ");
+  const offerTokens = meaningfulTokens(`${primaryService} ${offerLabels.join(" ")}`).slice(0, 8);
+  const whatClear = Boolean((h1.length >= 12 && !generic.test(h1) && offerTokens.some((token) => h1.toLowerCase().includes(token))) || offerLabels.length >= 2);
+  const audiencePattern = /\b(voor (?:bedrijven|ondernemers|organisaties|professionals|particulieren|consumenten|woningeigenaren|gezinnen|kinderen|mannen|vrouwen)|b2b|b2c|zakelijk|thuis)\b/i;
+  const benefitPattern = /\b(duurzaam|handgemaakt|kwaliteit|persoonlijk|lokaal|uniek|snelle? levering|gratis (?:verzending|retour|advies)|garantie|vakmanschap|specialist|sinds \d{4}|\d+ jaar|betaalbaar|op maat|100 dagen|eigen ontwerp)\b/i;
+  const whoSnippet = firstSnippet(combined, audiencePattern);
+  const whySnippet = firstSnippet(combined, benefitPattern);
+  const whoClear = Boolean(whoSnippet);
+  const whyClear = Boolean(whySnippet);
+  const score = (whatClear ? 45 : 10) + (whoClear ? 25 : 0) + (whyClear ? 30 : 0);
+  const missing = [!whatClear ? "what the company sells" : null, !whoClear ? "who the offer is for" : null, !whyClear ? "why a visitor should choose it" : null].filter(Boolean);
+  const explanation = missing.length
+    ? `Visitors ${whatClear ? `can identify ${primaryService}` : "cannot quickly identify the main offer"}, but the evidence does not clearly explain ${missing.join(" and ")}.`
+    : `The site identifies ${primaryService}, states its audience, and provides a concrete reason to choose it.`;
+  const recommendation = !whatClear
+    ? `Replace “${h1 || homepage.title}” with a heading that names ${primaryService}.`
+    : !whoClear
+      ? `Add “For ${targetCustomer}” beside the main offer on the homepage.`
+      : !whyClear
+        ? "Add one verifiable differentiator beside the main offer, such as quality, service or guarantee."
+        : "Keep the offer, audience and differentiator together above the fold.";
+  const evidence: Evidence[] = [
+    { statement: whatClear ? `What is sold is supported by “${h1 || primaryService}” and representative labels: ${offerLabels.slice(0, 3).join(", ") || primaryService}.` : `The homepage heading “${h1 || homepage.title}” and available offer labels do not clearly name the main offer.`, pageLabel: "Homepage and offer pages", url: homepage.url },
+    { statement: whoClear ? `Audience evidence: “${whoSnippet}”.` : "No explicit target-customer statement was detected in the homepage or representative offer copy.", pageLabel: "Audience evidence", url: homepage.url },
+    { statement: whyClear ? `Differentiation evidence: “${whySnippet}”.` : "No concrete differentiator was detected in the homepage or representative offer copy.", pageLabel: "Value proposition evidence", url: homepage.url },
+  ];
 
   return category(
     "offer-clarity",
     "Offer Clarity",
     score,
-    confidenceFor(pages.length, sources.length),
+    confidenceFor(pages.length, [whatClear, whoClear, whyClear].filter(Boolean).length),
     explanation,
-    [{ statement, pageLabel: "Homepage", url: homepage.url }],
+    evidence,
+    recommendation,
   );
 }
 
@@ -558,7 +664,22 @@ function serviceCategory(homepage: PageFacts, pages: PageFacts[], servicePages: 
   );
 }
 
-function conversionCategory(homepage: PageFacts, pages: PageFacts[], path: string[] | null) {
+function conversionCategory(homepage: PageFacts, pages: PageFacts[], journey: JourneyAnalysis, path: string[] | null) {
+  if (journey.businessModels.includes("Ecommerce")) {
+    const complete = journey.primary.status === "complete";
+    const actions = journey.primary.clicksToInterface;
+    const reason = journey.primary.limitations[0] || "The complete ecommerce route was not verified.";
+    const score = complete ? actions !== null && actions <= 4 ? 85 : actions === 5 ? 70 : 50 : 10;
+    return category(
+      "customer-journey-path",
+      "Customer Journey Path",
+      score,
+      complete ? "High" : "Low",
+      complete ? `The complete purchase route is verified in ${actions} required user actions.` : "Incomplete journey: cart and checkout reachability were not verified from a product selected during this scan.",
+      [{ statement: complete ? `Verified route: Homepage → category/search → product → add to cart → cart → checkout (${actions} required actions).` : reason, pageLabel: complete ? "Verified ecommerce journey" : "Incomplete ecommerce journey", url: homepage.url }],
+      complete ? "Keep every verified purchase step available and clearly labelled." : "Test and expose one verifiable product-to-cart-to-checkout route without assuming cart state.",
+    );
+  }
   const broken = pages.find((page) => isContactPage(page) && page.statusCode >= 400);
   const destination = path ? pages.find((page) => page.normalizedUrl === path[path.length - 1]) : null;
   const steps = path ? Math.max(0, path.length - 1) : null;
@@ -694,7 +815,7 @@ function requiredFinding(item: ReadinessCategory, homepage: PageFacts, rank: num
       id: "offer-clarity",
       title: "Offer Clarity",
       summary: item.explanation,
-      nextAction: score !== null && score >= 80 ? "Keep the primary offer consistent across the journey." : "State the product or service and customer outcome in the main heading.",
+      nextAction: item.recommendation || (score !== null && score >= 80 ? "Keep the primary offer consistent across the journey." : "State the product or service and customer outcome in the main heading."),
     };
   }
 
@@ -712,8 +833,8 @@ function requiredFinding(item: ReadinessCategory, homepage: PageFacts, rank: num
     ...shared,
     id: "customer-journey-path",
     title: "Customer Journey Path",
-    summary: score === null ? item.explanation : clicks === null ? "A complete public route to conversion could not be confirmed." : `The shortest evidenced route reaches conversion in ${clicks} click${clicks === 1 ? "" : "s"}.`,
-    nextAction: clicks === null ? "Expose a direct route to the primary conversion." : clicks <= 2 ? "Keep the shortest conversion route prominent." : "Remove intermediate steps from the primary conversion route.",
+    summary: score === null || clicks === null ? item.explanation : `The verified route reaches conversion in ${clicks} required user action${clicks === 1 ? "" : "s"}.`,
+    nextAction: item.recommendation || (clicks === null ? "Expose a direct route to the primary conversion." : clicks <= 2 ? "Keep the shortest conversion route prominent." : "Remove intermediate steps from the primary conversion route."),
   };
 }
 
@@ -740,19 +861,19 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
   );
   const servicePages = pages.filter((page) => isSpecificServicePage(page, overviewLinks));
   const internalLinks = new Set(pages.flatMap((page) => page.normalizedLinks));
-  const primaryService = inferPrimaryService(homepage, servicePages);
-  const market = inferMarket(pages);
   const commercialModel = classifyCommercialModel(pages);
+  const primaryService = inferPrimaryService(homepage, servicePages, pages, commercialModel);
+  const market = inferMarket(pages, commercialModel);
   const journey = buildJourneyAnalysis(pages, homepage, primaryService, commercialModel);
-  const fallbackPath = shortestConversionPath(pages, homepage);
+  const fallbackPath = journey.businessModels.includes("Ecommerce") ? null : shortestConversionPath(pages, homepage);
   const detectedPath = journey.primary.shortestRoute.length ? journey.primary.shortestRoute : fallbackPath;
   const path = detectedPath && (detectedPath.length > 1 || homepage.forms.some((form) => form.isConversion)) ? detectedPath : null;
   const destination = path ? pages.find((page) => page.normalizedUrl === path[path.length - 1]) || null : null;
 
   const rawCategories = [
-    offerCategory(homepage, pages, primaryService),
+    offerCategory(homepage, pages, primaryService, market.targetCustomer),
     ctaCategory(homepage, pages, commercialModel),
-    conversionCategory(homepage, pages, path),
+    conversionCategory(homepage, pages, journey, path),
   ];
   const readablePages = pages.filter((page) => page.statusCode < 400 && page.bodyText.length >= 80).length;
   const hasEnoughEvidence = readablePages >= 3;
@@ -768,8 +889,9 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
   const score = hasEnoughEvidence
     ? Math.round(categories.reduce((sum, item) => sum + (item.score ?? 0) * item.weight, 0) / 100)
     : null;
+  const incompleteEcommerceJourney = journey.businessModels.includes("Ecommerce") && journey.primary.status === "incomplete";
   const reportConfidence = hasEnoughEvidence ? confidenceFor(readablePages, categories.length) : "Low";
-  const clicks = path ? Math.max(0, path.length - 1) : null;
+  const clicks = journey.primary.clicksToInterface;
   const gaps: Gap[] = categories.map((item, index) => requiredFinding(item, homepage, index + 1, clicks));
   const companyName = inferCompanyName(homepage);
   const searchQuery = `${primaryService} ${market.geography} ${market.targetCustomer}`.replace(/\s+/g, " ").trim();
@@ -781,7 +903,7 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
     companyName,
     primaryService,
     score,
-    scoreLabel: scoreLabel(score),
+    scoreLabel: incompleteEcommerceJourney && score !== null ? "Incomplete journey" : scoreLabel(score),
     readiness: {
       status: hasEnoughEvidence ? "scored" : "insufficient-data",
       score,
@@ -797,8 +919,8 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
       : insufficientExplanation,
     overview: {
       score,
-      status: score === null ? "Insufficient data" : score >= 80 ? "Strong" : score >= 60 ? "Mixed" : "Needs attention",
-      explanation: score === null ? insufficientExplanation : score >= 80 ? "The representative journey is clear and direct." : score >= 60 ? "The journey is usable, with specific opportunities to improve." : "The representative journey contains visible acquisition friction.",
+      status: score === null ? "Insufficient data" : incompleteEcommerceJourney ? "Needs attention" : score >= 80 ? "Strong" : score >= 60 ? "Mixed" : "Needs attention",
+      explanation: score === null ? insufficientExplanation : incompleteEcommerceJourney ? "The purchase journey could not be verified from product selection through checkout." : score >= 80 ? "The representative journey is clear and direct." : score >= 60 ? "The journey is usable, with specific opportunities to improve." : "The representative journey contains visible acquisition friction.",
       businessModel: journey.businessModels[0],
       primaryConversion: journey.primaryConversionType,
       estimatedClicks: clicks,
@@ -835,6 +957,7 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
       },
       note: "Competitor discovery was not run for this result.",
       competitors: [],
+      rejected: [],
     },
     journey,
     pages: pages.map((page) => ({ title: page.title, url: page.url, type: pageType(page, homepage, servicePages), statusCode: page.statusCode })),

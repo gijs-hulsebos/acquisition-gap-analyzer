@@ -3,9 +3,9 @@ import { analyzeCrawl, detectTrustSignals } from "../lib/analyzer";
 import { readAnalysisResponse } from "../lib/api-response";
 import { analyzeCompetitorPage, analyzeCompetitorSite, applyCompetitorAnalysis } from "../lib/competitors";
 import { buildDeterministicEntityProfile, competitorCandidateScore } from "../lib/entity";
-import { crawlWebsite, selectRepresentativeResults } from "../lib/firecrawl";
+import { crawlWebsite, discoverCompetitorPages, selectRepresentativeResults } from "../lib/firecrawl";
 import { classifyCommercialModel, journeyRolesForModel } from "../lib/journey-model";
-import type { CrawlPage } from "../lib/types";
+import type { CrawlPage, ResolvedCompanyEntity } from "../lib/types";
 
 function page(overrides: Partial<CrawlPage> & Pick<CrawlPage, "url" | "title" | "html">): CrawlPage {
   return {
@@ -192,6 +192,58 @@ describe("entity-first competitor discovery", () => {
     expect(relevant).toBeGreaterThanOrEqual(5);
     expect(unrelated).toBe(-100);
   });
+
+  it("rejects same-company, directory and unrelated results before crawling external domains", async () => {
+    const entity: ResolvedCompanyEntity = {
+      companyName: "Dille & Kamille",
+      domain: "dille-kamille.nl",
+      industry: "Home and lifestyle retail",
+      businessModel: "retail-ecommerce",
+      offerings: ["woonaccessoires", "keukenaccessoires en servies", "cadeaus"],
+      geography: "Nederland",
+      targetCustomer: "particulieren",
+      confidence: "High",
+      method: "deterministic",
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const requestUrl = String(input);
+      if (requestUrl.endsWith("/search")) {
+        return new Response(JSON.stringify({ success: true, data: { web: [
+          { title: "Dille & Kamille België", description: "De Belgische webshop.", url: "https://dille-kamille.be/" },
+          { title: "Dille & Kamille reviews", description: "Reviews en ervaringen.", url: "https://trustpilot.com/review/dille-kamille.nl" },
+          { title: "Boekhoudsoftware", description: "Software voor accountants.", url: "https://softwarewinkel.nl/" },
+          { title: "Andere Woonwinkel", description: "Nederlandse webshop met woonaccessoires, servies en cadeaus.", url: "https://andere-woonwinkel.nl/" },
+        ] } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (requestUrl.endsWith("/scrape")) {
+        return new Response(JSON.stringify({ success: true, data: {
+          markdown: "Woonaccessoires, servies en cadeaus. Bekijk ons assortiment. Product € 12,95. Product € 18,95.",
+          html: '<h1>Woonaccessoires, servies en cadeaus</h1><a href="/collectie">Bekijk assortiment</a><div class="product-card">€ 12,95</div><div class="product-card">€ 18,95</div>',
+          links: ["https://andere-woonwinkel.nl/collectie"],
+          metadata: { sourceURL: "https://andere-woonwinkel.nl/", title: "Andere Woonwinkel", description: "Nederlandse webshop voor wonen en cadeaus.", statusCode: 200 },
+        } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (requestUrl.endsWith("/map")) {
+        return new Response(JSON.stringify({ success: false, error: "No map" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      throw new Error(`Unexpected request: ${requestUrl}`);
+    });
+
+    const discovery = await discoverCompetitorPages(entity, "https://dille-kamille.nl/", "test-key");
+    expect(discovery.accepted).toHaveLength(1);
+    expect(discovery.accepted[0].seedUrl).toBe("https://andere-woonwinkel.nl/");
+    expect(discovery.rejected.map((item) => item.reason)).toEqual(expect.arrayContaining([
+      "Same company or a regional version of the submitted company.",
+      "Directory, blog, review site or other non-commercial result.",
+      "Insufficient industry, offer, geography or target-customer match.",
+    ]));
+    const scrapedBodies = fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/scrape")).map(([, init]) => String(init?.body));
+    expect(scrapedBodies).toHaveLength(1);
+    expect(scrapedBodies[0]).toContain("andere-woonwinkel.nl");
+    expect(scrapedBodies.join(" ")).not.toContain("dille-kamille.be");
+    expect(scrapedBodies.join(" ")).not.toContain("trustpilot.com");
+    expect(scrapedBodies.join(" ")).not.toContain("softwarewinkel.nl");
+  });
 });
 
 describe("representative customer journeys", () => {
@@ -205,11 +257,13 @@ describe("representative customer journeys", () => {
       page({ url: "https://winkel.nl/checkout", title: "Afrekenen", html: "<h1>Afrekenen</h1>" }),
       page({ url: "https://winkel.nl/retour", title: "Retourneren", html: "<h1>Retourneren</h1>" }),
       page({ url: "https://winkel.nl/blog/zomer", title: "Zomerblog", html: "<h1>Zomerblog</h1>" }),
+      page({ url: "https://external.example/products/pan", title: "Extern product", html: "<h1>Extern product</h1><button>In winkelmand</button>" }),
     ];
     const selected = selectRepresentativeResults(pages, "https://winkel.nl/", 8);
     expect(selected[0].url).toBe("https://winkel.nl/");
     expect(selected).toHaveLength(6);
     expect(selected.filter((item) => /\/products\//.test(item.url))).toHaveLength(1);
+    expect(selected.every((item) => new URL(item.url).origin === "https://winkel.nl")).toBe(true);
     expect(selected.map((item) => item.url)).toEqual(expect.arrayContaining([
       "https://winkel.nl/collecties/keuken",
       "https://winkel.nl/cart",
@@ -239,18 +293,62 @@ describe("representative customer journeys", () => {
     const pages = [
       page({ url: "https://winkel.nl/", title: "Voorbeeldwinkel", links: ["https://winkel.nl/collecties/keuken"], html: '<html><body><h1>Wonen en keuken</h1><p>Shop onze collectie woonaccessoires en keukenproducten.</p><a href="/collecties/keuken">Bekijk collectie</a></body></html>' }),
       page({ url: "https://winkel.nl/collecties/keuken", title: "Keuken", links: ["https://winkel.nl/products/pan"], html: '<html><body><h1>Keuken</h1><p>Bekijk producten voor koken en tafelen.</p><a href="/products/pan">Bekijk pan</a></body></html>' }),
-      page({ url: "https://winkel.nl/products/pan", title: "Pan", html: '<html><body><h1>Pan</h1><p>Een pan voor dagelijks koken.</p><button>In winkelmand</button></body></html>' }),
-      page({ url: "https://winkel.nl/cart", title: "Winkelmand", html: '<html><body><h1>Winkelmand</h1><p>Controleer uw bestelling.</p><button>Naar de kassa</button></body></html>' }),
+      page({ url: "https://winkel.nl/products/pan", title: "Pan", links: ["https://winkel.nl/cart"], html: '<html><body><h1>Pan</h1><p>Een pan voor dagelijks koken.</p><a href="/cart">In winkelmand</a></body></html>' }),
+      page({ url: "https://winkel.nl/cart", title: "Winkelmand", links: ["https://winkel.nl/checkout"], html: '<html><body><h1>Winkelmand</h1><p>Pan, aantal 1. Controleer uw bestelling.</p><a href="/checkout">Naar de kassa</a></body></html>' }),
       page({ url: "https://winkel.nl/checkout", title: "Afrekenen", html: '<html><body><h1>Afrekenen</h1><form><input name="email" required><input name="address" required><button>Bestelling plaatsen</button></form></body></html>' }),
     ];
     const result = analyzeCrawl(pages, "https://winkel.nl/", 500);
 
     expect(result.journey.businessModels).toContain("Ecommerce");
     expect(result.journey.primaryConversionType).toBe("Checkout");
+    expect(result.journey.primary.status).toBe("complete");
     expect(result.journey.primary.clicksToInterface).toBe(4);
     expect(result.journey.primary.stages.map((stage) => stage.pageType)).toEqual(["Homepage", "Category", "Product", "Cart", "Checkout"]);
-    expect(result.journey.primary.additionalObservableActions).toBe(3);
+    expect(result.journey.primary.additionalObservableActions).toBeNull();
     expect(result.gaps.map((gap) => gap.title)).toEqual(["Offer Clarity", "CTA Clarity", "Customer Journey Path"]);
+  });
+
+  it("never treats an empty cart or directly scraped checkout as a short completed journey", () => {
+    const pages = [
+      page({ url: "https://winkel.nl/", title: "Winkel", links: ["https://winkel.nl/collecties/keuken", "https://winkel.nl/cart"], html: '<h1>Wonen en keuken</h1><p>Ontdek ons uitgebreide assortiment voor koken, tafelen en wonen met duidelijke productinformatie.</p><a href="/collecties/keuken">Keuken</a><a href="/cart">Winkelmand</a>' }),
+      page({ url: "https://winkel.nl/collecties/keuken", title: "Keuken", links: ["https://winkel.nl/products/pan"], html: '<h1>Keuken</h1><p>Bekijk pannen en keukenproducten voor dagelijks koken, uitgebreid beschreven voor consumenten.</p><a href="/products/pan">Pan</a>' }),
+      page({ url: "https://winkel.nl/products/pan", title: "Pan", links: ["https://winkel.nl/cart"], html: '<h1>Pan</h1><p>Deze duurzame pan is geschikt voor dagelijks koken en bevat uitgebreide productinformatie.</p><a href="/cart">In winkelmand</a>' }),
+      page({ url: "https://winkel.nl/cart", title: "Winkelmand", links: ["https://winkel.nl/checkout"], html: '<h1>Winkelmand</h1><p>Je winkelmand is leeg. Voeg eerst een product toe voordat je veilig kunt doorgaan met bestellen.</p><a href="/checkout">Naar de kassa</a>' }),
+      page({ url: "https://winkel.nl/checkout", title: "Checkout", html: '<h1>Afrekenen</h1><p>Vul na een geldige winkelmand je gegevens in om de bestelling veilig af te ronden.</p>' }),
+    ];
+    const result = analyzeCrawl(pages, "https://winkel.nl/", 300);
+    const journeyFinding = result.gaps.find((gap) => gap.id === "customer-journey-path")!;
+    expect(result.journey.primary.status).toBe("incomplete");
+    expect(result.journey.primary.name).toBe("Incomplete journey");
+    expect(result.journey.primary.clicksToInterface).toBeNull();
+    expect(result.scoreLabel).toBe("Incomplete journey");
+    expect(result.overview.status).toBe("Needs attention");
+    expect(journeyFinding.score).toBe(10);
+    expect(journeyFinding.summary).toMatch(/incomplete journey/i);
+    expect(journeyFinding.evidence[0].statement).toMatch(/populated cart state/i);
+  });
+
+  it("counts opening the cart as a separate action when add-to-cart does not navigate there", () => {
+    const pages = [
+      page({ url: "https://winkel.nl/", title: "Winkel", links: ["https://winkel.nl/collecties/keuken", "https://winkel.nl/cart"], html: '<h1>Wonen en keuken</h1><p>Ontdek producten voor thuis met snelle levering en duidelijke informatie voor consumenten.</p><a href="/collecties/keuken">Keuken</a><a href="/cart">Winkelmand</a>' }),
+      page({ url: "https://winkel.nl/collecties/keuken", title: "Keuken", links: ["https://winkel.nl/products/pan"], html: '<h1>Keukenproducten</h1><p>Bekijk het complete assortiment voor dagelijks koken en tafelen in huis.</p><a href="/products/pan">Bekijk pan</a>' }),
+      page({ url: "https://winkel.nl/products/pan", title: "Pan", html: '<h1>Duurzame pan</h1><p>Een duurzame kwaliteitspan voor dagelijks koken met uitgebreide productinformatie.</p><button>In winkelmand</button>' }),
+      page({ url: "https://winkel.nl/cart", title: "Winkelmand", links: ["https://winkel.nl/checkout"], html: '<h1>Winkelmand</h1><p>Pan, aantal 1. De bestelling staat klaar om veilig te worden afgerekend.</p><a href="/checkout">Naar de kassa</a>' }),
+      page({ url: "https://winkel.nl/checkout", title: "Checkout", html: '<h1>Afrekenen</h1><p>Vul je gegevens in om de bestelling veilig en snel af te ronden.</p>' }),
+    ];
+    const result = analyzeCrawl(pages, "https://winkel.nl/", 300);
+    expect(result.journey.primary.status).toBe("complete");
+    expect(result.journey.primary.clicksToInterface).toBe(5);
+    expect(result.gaps.find((gap) => gap.id === "customer-journey-path")?.evidence[0].statement).toMatch(/5 required actions/i);
+  });
+
+  it("explains offer clarity using what, who and why evidence", () => {
+    const result = analyzeCrawl(scoredSite({ trustOnContact: true }), "https://voorbeeld.nl/", 300);
+    const offer = result.gaps.find((gap) => gap.id === "offer-clarity")!;
+    expect(offer.evidence).toHaveLength(3);
+    expect(offer.evidence.map((item) => item.pageLabel)).toEqual(["Homepage and offer pages", "Audience evidence", "Value proposition evidence"]);
+    expect(offer.summary).toMatch(/identifies|can identify/i);
+    expect(offer.nextAction.length).toBeGreaterThan(20);
   });
 
   it("recognizes a retail homepage with product cards and ignores utility forms", () => {
