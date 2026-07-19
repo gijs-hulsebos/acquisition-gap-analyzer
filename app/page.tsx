@@ -24,7 +24,7 @@ import {
   Sparkles,
   Target,
 } from "lucide-react";
-import type { AnalysisResult, Gap } from "@/lib/types";
+import type { AnalysisResult, CompetitorScanResult, Gap } from "@/lib/types";
 import { readAnalysisResponse } from "@/lib/api-response";
 
 type View = "landing" | "loading" | "results";
@@ -484,6 +484,78 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
   );
 }
 
+function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
+  const [status, setStatus] = useState<"idle" | "loading" | "complete" | "error">("idle");
+  const [scan, setScan] = useState<CompetitorScanResult | null>(null);
+  const [error, setError] = useState("");
+
+  async function runScan() {
+    setStatus("loading");
+    setError("");
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 58_000);
+    try {
+      const response = await fetch("/api/competitors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(result.mode === "fixture" ? { mode: "fixture" } : {
+          url: result.url,
+          companyName: result.companyName,
+          primaryOffer: result.primaryService,
+          businessModel: result.overview.businessModel,
+        }),
+        signal: controller.signal,
+      });
+      const text = await response.text();
+      const payload = text ? JSON.parse(text) as CompetitorScanResult & { error?: string } : null;
+      if (!response.ok || !payload) throw new Error(payload?.error || "The competitor scan could not be completed.");
+      setScan(payload);
+      setStatus("complete");
+    } catch (caught) {
+      setError(caught instanceof DOMException && caught.name === "AbortError" ? "The competitor scan took too long." : caught instanceof Error ? caught.message : "The competitor scan failed.");
+      setStatus("error");
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  return (
+    <section
+      className={`public-competitor-scan ${status === "complete" ? "has-results" : ""}`}
+      aria-labelledby="competitor-scan-heading"
+    >
+      <div className="competitor-scan-intro">
+        <div className="competitor-scan-icon"><Search size={17} /></div>
+        <div><span>Optional extra scan</span><h2 id="competitor-scan-heading">Public competitors</h2><p>Compare the same three findings with up to two direct competitors.</p></div>
+      </div>
+      {status !== "complete" && (
+        <button className="competitor-scan-button" type="button" onClick={() => void runScan()} disabled={status === "loading"}>
+          {status === "loading" ? <><LoaderCircle className="spin" size={15} /> Scanning competitors</> : <><Search size={15} /> Scan 2 competitors</>}
+        </button>
+      )}
+      {status === "error" && <p className="competitor-scan-error">{error}</p>}
+      {status === "complete" && scan && (
+        <div className="competitor-scan-results">
+          <header><span>{scan.note}</span><button type="button" onClick={() => void runScan()}>Scan again</button></header>
+          {scan.competitors.length ? <div className="competitor-cards">
+            {scan.competitors.map((competitor) => (
+              <article className="competitor-card" key={competitor.url}>
+                <div className="competitor-card-head">
+                  <div><small>Direct public competitor · {competitor.pagesAnalyzed} pages</small><a href={competitor.url} target="_blank" rel="noreferrer">{competitor.name}<ExternalLink size={11} /></a></div>
+                  <strong>{competitor.score === null ? "—" : `${competitor.score}%`}</strong>
+                </div>
+                <div className="competitor-findings">
+                  {competitor.findings.map((finding) => <div key={finding.id}><span>{finding.title}</span><strong>{finding.score === null ? "Insufficient" : finding.id === "customer-journey-path" && competitor.estimatedClicks !== null ? `${competitor.estimatedClicks} clicks` : `${finding.score}/100`}</strong></div>)}
+                </div>
+              </article>
+            ))}
+          </div> : <p className="competitor-scan-empty">No sufficiently direct competitor could be verified from the public results.</p>}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function TechnicalDetails({ result }: { result: AnalysisResult }) {
   const routeValue = result.stats.conversionPathSteps === null ? "Not found" : `${result.stats.conversionPathSteps} step${result.stats.conversionPathSteps === 1 ? "" : "s"}`;
   return (
@@ -576,6 +648,8 @@ function ResultsView({ result, onReset }: { result: AnalysisResult; onReset: () 
             <ConversionReadiness result={result} />
             <AcquisitionJourney result={result} />
           </section>
+
+          <PublicCompetitorScan result={result} />
 
           <section className="gaps-section" id="gaps">
             <div className="section-heading">

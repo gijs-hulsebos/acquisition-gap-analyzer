@@ -444,6 +444,31 @@ a { color: inherit; }
 .company-heading { margin-bottom: 17px; }
 
 .overview-workspace { display: grid; grid-template-columns: .78fr 1.22fr; gap: 12px; }
+.public-competitor-scan { margin: 14px 0 34px; padding: 16px 18px; border: 1px solid rgba(211,188,235,.11); border-radius: 13px; display: flex; align-items: center; justify-content: space-between; gap: 18px; background: linear-gradient(135deg, rgba(20,16,25,.96), rgba(13,10,17,.98)); box-shadow: var(--shadow-soft); }
+.public-competitor-scan.has-results { align-items: stretch; flex-direction: column; }
+.competitor-scan-intro { min-width: 0; display: flex; align-items: center; gap: 13px; }
+.competitor-scan-icon { width: 36px; height: 36px; flex: 0 0 auto; border: 1px solid rgba(184,122,226,.18); border-radius: 10px; display: grid; place-items: center; color: #c48bea; background: rgba(134,78,173,.1); }
+.competitor-scan-intro span { display: block; margin-bottom: 3px; color: #8d6ca5; font-size: 8px; font-weight: 700; letter-spacing: .65px; text-transform: uppercase; }
+.competitor-scan-intro h2 { margin: 0; color: #eee9f1; font-size: 16px; font-weight: 660; letter-spacing: -.35px; }
+.competitor-scan-intro p { margin: 3px 0 0; color: #8f8794; font-size: 10px; }
+.competitor-scan-button { min-height: 36px; padding: 0 14px; flex: 0 0 auto; border: 1px solid rgba(183,126,221,.28); border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; color: #e5d7ed; background: linear-gradient(135deg, rgba(102,58,139,.28), rgba(54,34,70,.35)); cursor: pointer; font: inherit; font-size: 10px; font-weight: 650; transition: transform .2s, border-color .2s, background .2s; }
+.competitor-scan-button:hover:not(:disabled) { transform: translateY(-1px); border-color: rgba(210,146,250,.48); background: linear-gradient(135deg, rgba(126,67,169,.4), rgba(70,40,91,.42)); }
+.competitor-scan-button:disabled { cursor: wait; opacity: .72; }
+.competitor-scan-error { margin: 0; color: #d99191; font-size: 10px; }
+.competitor-scan-results { width: 100%; display: grid; gap: 12px; }
+.competitor-scan-results > header { display: flex; justify-content: space-between; gap: 12px; color: #918897; font-size: 10px; }
+.competitor-scan-results > header button { border: 0; padding: 0; color: #b98bd5; background: transparent; cursor: pointer; font: inherit; font-size: 9px; }
+.competitor-cards { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+.competitor-card { min-width: 0; padding: 13px; border: 1px solid rgba(211,188,235,.1); border-radius: 10px; background: rgba(255,255,255,.018); }
+.competitor-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.competitor-card-head small { display: block; margin-bottom: 4px; color: #756b7b; font-size: 7px; text-transform: uppercase; letter-spacing: .4px; }
+.competitor-card-head a { display: inline-flex; align-items: center; gap: 5px; color: #ded5e3; text-decoration: none; font-size: 12px; font-weight: 650; }
+.competitor-card-head > strong { color: #d8a6f1; font-size: 20px; font-weight: 650; }
+.competitor-findings { margin-top: 11px; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); border-top: 1px solid rgba(211,188,235,.08); }
+.competitor-findings > div { min-width: 0; padding: 10px 8px 0 0; display: grid; gap: 4px; }
+.competitor-findings span { overflow: hidden; color: #7e7584; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.competitor-findings strong { color: #bcb2c2; font-size: 10px; font-weight: 620; }
+.competitor-scan-empty { margin: 0; color: #958b9b; font-size: 10px; }
 .conversion-readiness { min-height: 246px; padding: 21px 22px; border: 1px solid rgba(211,188,235,.15); border-radius: 15px; display: grid; grid-template-columns: 124px minmax(0,1fr); align-items: center; gap: 19px; background: radial-gradient(circle at 7% 38%, rgba(128,65,190,.12), transparent 30%), linear-gradient(145deg, rgba(22,18,27,.95), rgba(13,11,17,.97)); box-shadow: 0 20px 55px rgba(0,0,0,.18), inset 0 1px rgba(255,255,255,.025); animation: contentReveal .5s .04s cubic-bezier(.22,.75,.2,1) both; }
 .readiness-score-block { min-height: 135px; padding-right: 18px; border-right: 1px solid rgba(211,188,235,.1); display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .readiness-score-block > span, .readiness-label { margin-bottom: 8px; color: #817687; font-size: 7px; font-weight: 700; letter-spacing: .75px; text-transform: uppercase; white-space: nowrap; }
@@ -955,6 +980,10 @@ body { font-variation-settings: "wght" 500; }
   .company-heading h1 { font-size: clamp(23px, 6.5vw, 28px); overflow-wrap: anywhere; }
   .company-heading p { font-size: 11px; line-height: 1.45; }
   .overview-workspace { gap: 11px; }
+  .public-competitor-scan { align-items: stretch; flex-direction: column; padding: 15px; }
+  .competitor-scan-button { width: 100%; }
+  .competitor-cards { grid-template-columns: 1fr; }
+  .competitor-findings { grid-template-columns: 1fr; }
   .conversion-readiness, .journey-panel { border-radius: 13px; }
   .gaps-section { margin-top: 25px; }
   .gaps-section .section-heading h2 { font-size: 23px; }

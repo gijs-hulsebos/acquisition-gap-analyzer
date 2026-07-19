@@ -9,6 +9,7 @@ A small MVP that analyzes one public website and returns three acquisition findi
 3. Deterministic extraction builds evidence for the landing-page offer, CTAs and customer journey.
 4. OpenRouter optionally rewrites the finished findings in concise language without changing scores or evidence.
 5. The dashboard shows the overview, three findings and crawl details.
+6. After the main report is complete, the user can optionally run a separate public-competitor scan. It searches once and starts one three-page crawl for each selected direct competitor, with a maximum of two.
 
 ## Findings
 
@@ -18,7 +19,7 @@ A small MVP that analyzes one public website and returns three acquisition findi
 
 The analyzer reads public HTML, Markdown and links. It does not click buttons, add products, submit forms or complete checkout. Post-click cart and checkout states may therefore be inferred and are labelled in the evidence.
 
-Competitor analysis is intentionally not included yet.
+Competitor analysis is optional and never delays or changes the original report. Its results are session-only and are not stored.
 
 ## Environment
 

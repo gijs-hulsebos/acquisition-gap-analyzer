@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeCrawl } from "../lib/analyzer";
+import { filterCompetitorCandidates } from "../lib/competitor-scan";
 import type { CrawlPage } from "../lib/types";
 
 function page(url: string, title: string, html: string, links: string[] = []): CrawlPage {
@@ -74,5 +75,17 @@ describe("simple acquisition report", () => {
     const result = analyzeCrawl(ecommercePages().slice(0, 1), "https://shop.nl/", 100);
     expect(result.score).toBeNull();
     expect(result.readiness.status).toBe("insufficient-data");
+  });
+});
+
+describe("optional competitor scan", () => {
+  it("rejects the submitted domain, directories and duplicate domains", () => {
+    const candidates = filterCompetitorCandidates([
+      { title: "Submitted company", description: "", url: "https://shop.nl/products" },
+      { title: "Review", description: "", url: "https://trustpilot.com/review/shop.nl" },
+      { title: "Direct competitor", description: "Similar Dutch shop", url: "https://competitor.nl/products" },
+      { title: "Duplicate result", description: "", url: "https://competitor.nl/about" },
+    ], "https://shop.nl/");
+    expect(candidates).toEqual([{ title: "Direct competitor", description: "Similar Dutch shop", url: "https://competitor.nl" }]);
   });
 });

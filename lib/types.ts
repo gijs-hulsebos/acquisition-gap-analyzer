@@ -128,6 +128,22 @@ export type AnalysisResult = {
   llmEnhanced: boolean;
 };
 
+export type PublicCompetitor = {
+  name: string;
+  url: string;
+  pagesAnalyzed: number;
+  score: number | null;
+  estimatedClicks: number | null;
+  findings: Gap[];
+};
+
+export type CompetitorScanResult = {
+  sourceUrl: string;
+  searchedAt: string;
+  competitors: PublicCompetitor[];
+  note: string;
+};
+
 export type CrawlPage = {
   url: string;
   title: string;
