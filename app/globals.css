@@ -457,21 +457,31 @@ a { color: inherit; }
 .competitor-scan-button { min-height: 36px; padding: 0 14px; flex: 0 0 auto; border: 1px solid rgba(183,126,221,.28); border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; color: #e5d7ed; background: linear-gradient(135deg, rgba(102,58,139,.28), rgba(54,34,70,.35)); cursor: pointer; font: inherit; font-size: 10px; font-weight: 650; transition: transform .2s, border-color .2s, background .2s; }
 .competitor-scan-button:hover:not(:disabled) { transform: translateY(-1px); border-color: rgba(210,146,250,.48); background: linear-gradient(135deg, rgba(126,67,169,.4), rgba(70,40,91,.42)); }
 .competitor-scan-button:disabled { cursor: wait; opacity: .72; }
+.competitor-url-form { min-width: min(590px, 52vw); display: grid; grid-template-columns: minmax(210px,1fr) auto; gap: 7px 9px; align-items: end; }
+.competitor-url-form > label { grid-column: 1 / -1; color: #8d6ca5; font-size: 8px; font-weight: 700; letter-spacing: .65px; text-transform: uppercase; }
+.competitor-url-form > div { min-height: 38px; padding: 0 11px; border: 1px solid rgba(211,188,235,.14); border-radius: 9px; display: flex; align-items: center; gap: 8px; color: #82738b; background: rgba(7,6,9,.72); transition: border-color .2s, box-shadow .2s; }
+.competitor-url-form > div:focus-within { border-color: rgba(198,129,239,.5); box-shadow: 0 0 0 3px rgba(147,80,192,.09); }
+.competitor-url-form input { width: 100%; min-width: 0; border: 0; outline: 0; color: #eee8f1; background: transparent; font: inherit; font-size: 11px; }
+.competitor-url-form input::placeholder { color: #625969; }
 .competitor-scan-error { margin: 0; color: #d99191; font-size: 10px; }
 .competitor-scan-results { width: 100%; display: grid; gap: 12px; }
 .competitor-scan-results > header { display: flex; justify-content: space-between; gap: 12px; color: #918897; font-size: 10px; }
 .competitor-scan-results > header button { border: 0; padding: 0; color: #b98bd5; background: transparent; cursor: pointer; font: inherit; font-size: 9px; }
-.competitor-cards { display: grid; grid-template-columns: minmax(0,1fr); gap: 10px; }
-.competitor-card { min-width: 0; padding: 13px; border: 1px solid rgba(211,188,235,.1); border-radius: 10px; background: rgba(255,255,255,.018); }
-.competitor-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.competitor-card-head small { display: block; margin-bottom: 4px; color: #756b7b; font-size: 7px; text-transform: uppercase; letter-spacing: .4px; }
-.competitor-card-head a { display: inline-flex; align-items: center; gap: 5px; color: #ded5e3; text-decoration: none; font-size: 12px; font-weight: 650; }
-.competitor-card-head > strong { color: #d8a6f1; font-size: 20px; font-weight: 650; }
-.competitor-findings { margin-top: 11px; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); border-top: 1px solid rgba(211,188,235,.08); }
-.competitor-findings > div { min-width: 0; padding: 10px 8px 0 0; display: grid; gap: 4px; }
-.competitor-findings span { overflow: hidden; color: #7e7584; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-.competitor-findings strong { color: #bcb2c2; font-size: 10px; font-weight: 620; }
-.competitor-scan-empty { margin: 0; color: #958b9b; font-size: 10px; }
+.competitor-comparison { overflow: hidden; border: 1px solid rgba(211,188,235,.11); border-radius: 11px; background: rgba(8,7,10,.36); }
+.comparison-grid { display: grid; grid-template-columns: minmax(130px,.5fr) repeat(2,minmax(0,1fr)); }
+.comparison-grid > * { min-width: 0; padding: 13px 15px; }
+.comparison-grid > * + * { border-left: 1px solid rgba(211,188,235,.08); }
+.comparison-head { align-items: end; background: rgba(255,255,255,.018); }
+.comparison-head > span { color: #766d7c; font-size: 8px; text-transform: uppercase; letter-spacing: .55px; }
+.comparison-head div { display: grid; gap: 4px; }
+.comparison-head small { color: #776b7e; font-size: 7px; font-weight: 700; letter-spacing: .45px; text-transform: uppercase; }
+.comparison-head strong, .comparison-head a { overflow: hidden; display: inline-flex; align-items: center; gap: 5px; color: #eee7f1; font-size: 13px; font-weight: 660; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.comparison-head b { color: #c493e2; font-size: 9px; font-weight: 620; }
+.comparison-row { border-top: 1px solid rgba(211,188,235,.08); }
+.comparison-row > strong { color: #a69cab; font-size: 10px; font-weight: 620; }
+.comparison-row > div { display: grid; align-content: start; gap: 5px; }
+.comparison-row b { color: #e6dbea; font-size: 12px; font-weight: 680; }
+.comparison-row p { margin: 0; color: #8d8492; font-size: 9px; line-height: 1.45; }
 .conversion-readiness { min-height: 246px; padding: 21px 22px; border: 1px solid rgba(211,188,235,.15); border-radius: 15px; display: grid; grid-template-columns: 124px minmax(0,1fr); align-items: center; gap: 19px; background: radial-gradient(circle at 7% 38%, rgba(128,65,190,.12), transparent 30%), linear-gradient(145deg, rgba(22,18,27,.95), rgba(13,11,17,.97)); box-shadow: 0 20px 55px rgba(0,0,0,.18), inset 0 1px rgba(255,255,255,.025); animation: contentReveal .5s .04s cubic-bezier(.22,.75,.2,1) both; }
 .readiness-score-block { min-height: 135px; padding-right: 18px; border-right: 1px solid rgba(211,188,235,.1); display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .readiness-score-block > span, .readiness-label { margin-bottom: 8px; color: #817687; font-size: 7px; font-weight: 700; letter-spacing: .75px; text-transform: uppercase; white-space: nowrap; }
@@ -988,8 +998,12 @@ body { font-variation-settings: "wght" 500; }
   .overview-workspace { gap: 11px; }
   .public-competitor-scan { align-items: stretch; flex-direction: column; padding: 15px; }
   .competitor-scan-button { width: 100%; }
-  .competitor-cards { grid-template-columns: 1fr; }
-  .competitor-findings { grid-template-columns: 1fr; }
+  .competitor-url-form { min-width: 0; grid-template-columns: 1fr; }
+  .competitor-url-form > label { grid-column: 1; }
+  .comparison-grid { grid-template-columns: 92px repeat(2,minmax(0,1fr)); }
+  .comparison-grid > * { padding: 11px 9px; }
+  .comparison-head strong, .comparison-head a { white-space: normal; font-size: 11px; }
+  .comparison-row p { display: none; }
   .conversion-readiness, .journey-panel { border-radius: 13px; }
   .gaps-section { margin-top: 25px; }
   .gaps-section .section-heading h2 { font-size: 23px; }

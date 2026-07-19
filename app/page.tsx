@@ -24,7 +24,7 @@ import {
   Sparkles,
   Target,
 } from "lucide-react";
-import type { AnalysisResult, CompetitorScanResult, CompetitorScanStartResponse, CompetitorScanStatusResponse, Gap, PublicCompetitor } from "@/lib/types";
+import type { AnalysisResult, Gap } from "@/lib/types";
 import { readAnalysisResponse } from "@/lib/api-response";
 import { DEMO_RESULT } from "@/lib/fixture";
 
@@ -492,71 +492,70 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
   );
 }
 
-function CompetitorCard({ competitor }: { competitor: PublicCompetitor }) {
+function comparisonValue(report: AnalysisResult, finding: Gap) {
+  if (finding.score === null) return "Insufficient data";
+  if (finding.id === "customer-journey-path" && report.overview.estimatedClicks !== null) {
+    return `${report.overview.estimatedClicks} clicks · ${finding.score}%`;
+  }
+  return `${finding.score}%`;
+}
+
+function CompetitorComparison({ company, competitor }: { company: AnalysisResult; competitor: AnalysisResult }) {
   return (
-    <article className="competitor-card">
-      <div className="competitor-card-head">
-        <div><small>Direct public competitor · {competitor.pagesAnalyzed} pages</small><a href={competitor.url} target="_blank" rel="noreferrer">{competitor.name}<ExternalLink size={11} /></a></div>
-        <strong>{competitor.score === null ? "—" : `${competitor.score}%`}</strong>
+    <article className="competitor-comparison" aria-label={`${company.companyName} compared with ${competitor.companyName}`}>
+      <div className="comparison-grid comparison-head">
+        <span>Finding</span>
+        <div><small>Analyzed company</small><strong>{company.companyName}</strong><b>{company.score === null ? "—" : `${company.score}% overall`}</b></div>
+        <div><small>Competitor · {competitor.pages.length} pages</small><a href={competitor.url} target="_blank" rel="noreferrer">{competitor.companyName}<ExternalLink size={11} /></a><b>{competitor.score === null ? "—" : `${competitor.score}% overall`}</b></div>
       </div>
-      <div className="competitor-findings">
-        {competitor.findings.map((finding) => <div key={finding.id}><span>{finding.title}</span><strong>{finding.score === null ? "Insufficient" : finding.id === "customer-journey-path" && competitor.estimatedClicks !== null ? `${competitor.estimatedClicks} clicks` : `${finding.score}/100`}</strong></div>)}
-      </div>
+      {company.gaps.map((finding) => {
+        const competitorFinding = competitor.gaps.find((item) => item.id === finding.id);
+        if (!competitorFinding) return null;
+        return (
+          <div className="comparison-grid comparison-row" key={finding.id}>
+            <strong>{finding.title}</strong>
+            <div><b>{comparisonValue(company, finding)}</b><p>{finding.summary}</p></div>
+            <div><b>{comparisonValue(competitor, competitorFinding)}</b><p>{competitorFinding.summary}</p></div>
+          </div>
+        );
+      })}
     </article>
   );
 }
 
 function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
-  const [status, setStatus] = useState<"idle" | "discovering" | "crawling" | "complete" | "error">("idle");
-  const [scan, setScan] = useState<CompetitorScanResult | null>(null);
+  const [status, setStatus] = useState<"idle" | "scanning" | "complete" | "error">("idle");
+  const [competitorUrl, setCompetitorUrl] = useState("");
+  const [competitor, setCompetitor] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState("");
 
-  async function pollScan(token: string) {
-    const deadline = Date.now() + 90_000;
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => window.setTimeout(resolve, 2_500));
-      const response = await fetch(`/api/competitors/status?token=${encodeURIComponent(token)}`, { cache: "no-store" });
-      const payload = await response.json() as CompetitorScanStatusResponse & { error?: string };
-      if (!response.ok) throw new Error(payload.error || "The competitor crawl status could not be read.");
-      if (payload.status === "processing") continue;
-      if (payload.status === "failed") throw new Error(payload.error);
-      setScan(payload.result);
-      setStatus("complete");
+  async function runScan(event: FormEvent) {
+    event.preventDefault();
+    if (!competitorUrl.trim()) {
+      setError("Enter the competitor website URL.");
+      setStatus("error");
       return;
     }
-    throw new Error("The competitor website is still processing. Try the scan again in a moment.");
-  }
 
-  async function runScan() {
-    setStatus("discovering");
-    setScan(null);
+    setStatus("scanning");
+    setCompetitor(null);
     setError("");
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 35_000);
+    const timeout = window.setTimeout(() => controller.abort(), 58_000);
     try {
-      const response = await fetch("/api/competitors/start", {
+      const response = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(result.mode === "fixture" ? { mode: "fixture" } : {
-          url: result.url,
-          companyName: result.companyName,
-          primaryOffer: result.primaryService,
-          businessModel: result.overview.businessModel,
-        }),
+        body: JSON.stringify({ url: competitorUrl }),
         signal: controller.signal,
       });
-      const payload = await response.json() as CompetitorScanStartResponse & { error?: string };
-      if (!response.ok || !payload) throw new Error(payload?.error || "The competitor scan could not be completed.");
-      window.clearTimeout(timeout);
-      if (payload.status === "complete") {
-        setScan(payload.result);
-        setStatus("complete");
-        return;
-      }
-      setStatus("crawling");
-      await pollScan(payload.token);
+      const payload = await readAnalysisResponse(response);
+      setCompetitor(payload);
+      setStatus("complete");
     } catch (caught) {
-      setError(caught instanceof DOMException && caught.name === "AbortError" ? "Competitor discovery took too long. Please retry." : caught instanceof Error ? caught.message : "The competitor scan failed.");
+      setError(caught instanceof DOMException && caught.name === "AbortError"
+        ? "The competitor scan took too long. Please try again."
+        : caught instanceof Error ? caught.message : "The competitor scan failed.");
       setStatus("error");
     } finally {
       window.clearTimeout(timeout);
@@ -564,26 +563,25 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
   }
 
   return (
-    <section
-      className={`public-competitor-scan ${status === "complete" ? "has-results" : ""}`}
-      aria-labelledby="competitor-scan-heading"
-    >
+    <section className={`public-competitor-scan ${status === "complete" ? "has-results" : ""}`} aria-labelledby="competitor-scan-heading">
       <div className="competitor-scan-intro">
         <div className="competitor-scan-icon"><Search size={17} /></div>
-        <div><span>Optional extra scan</span><h2 id="competitor-scan-heading">Public competitor</h2><p>Compare the same three findings with one direct competitor.</p></div>
+        <div><span>Optional comparison</span><h2 id="competitor-scan-heading">Compare a competitor</h2><p>Run the same analysis on another website.</p></div>
       </div>
       {status !== "complete" && (
-        <button className="competitor-scan-button" type="button" onClick={() => void runScan()} disabled={status === "discovering" || status === "crawling"}>
-          {status === "discovering" ? <><LoaderCircle className="spin" size={15} /> Finding competitor</> : status === "crawling" ? <><LoaderCircle className="spin" size={15} /> Crawling competitor</> : <><Search size={15} /> Scan competitor</>}
-        </button>
+        <form className="competitor-url-form" onSubmit={(event) => void runScan(event)}>
+          <label htmlFor="competitor-url">Competitor website URL</label>
+          <div><Globe2 size={15} /><input id="competitor-url" type="url" inputMode="url" autoComplete="url" placeholder="https://competitor.nl" value={competitorUrl} onChange={(event) => setCompetitorUrl(event.target.value)} disabled={status === "scanning"} /></div>
+          <button className="competitor-scan-button" type="submit" disabled={status === "scanning"}>
+            {status === "scanning" ? <><LoaderCircle className="spin" size={15} /> Analyzing competitor</> : <><Search size={15} /> Compare website</>}
+          </button>
+        </form>
       )}
       {status === "error" && <p className="competitor-scan-error">{error}</p>}
-      {status === "complete" && scan && (
+      {status === "complete" && competitor && (
         <div className="competitor-scan-results">
-          <header><span>{scan.note}</span><button type="button" onClick={() => void runScan()}>Scan again</button></header>
-          {scan.competitor ? <div className="competitor-cards">
-            <CompetitorCard competitor={scan.competitor} />
-          </div> : null}
+          <header><span>The same three findings were analyzed for both websites.</span><button type="button" onClick={() => { setStatus("idle"); setCompetitor(null); setError(""); }}>Compare another URL</button></header>
+          <CompetitorComparison company={result} competitor={competitor} />
         </div>
       )}
     </section>
