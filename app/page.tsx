@@ -315,16 +315,29 @@ function PageComposition({ result }: { result: AnalysisResult }) {
   );
 }
 
-function GapCard({ gap }: { gap: Gap }) {
+function FindingScoreRing({ score, label }: { score: number | null; label: string }) {
+  const normalizedScore = score === null ? 0 : Math.max(0, Math.min(100, score));
+  return (
+    <span
+      className={`finding-score-ring ${score === null ? "finding-score-ring-empty" : ""}`}
+      style={{ "--finding-score": `${normalizedScore * 3.6}deg` } as CSSProperties}
+      aria-label={score === null ? `${label}: insufficient data` : `${label}: ${score}%`}
+    >
+      <span><strong>{score === null ? "—" : `${score}%`}</strong></span>
+    </span>
+  );
+}
+
+function GapCard({ gap, compact = false }: { gap: Gap; compact?: boolean }) {
   const Icon = GAP_ICONS[gap.id];
   return (
-    <details className={`finding-row ${gap.rank === 1 ? "finding-row-primary" : ""}`} open={gap.rank === 1 ? true : undefined}>
+    <details className={`finding-row ${gap.rank === 1 ? "finding-row-primary" : ""} ${compact ? "finding-row-compact" : ""}`} open={gap.rank === 1 ? true : undefined}>
       <summary>
-        <span className="finding-rank">0{gap.rank}</span>
+        <FindingScoreRing score={gap.score} label={gap.title} />
         <span className={`gap-icon gap-icon-${gap.id}`}><Icon size={19} /></span>
         <div className="finding-title">
           <div>{gap.score === null ? <span className="severity">Insufficient data</span> : <span className={`severity severity-${gap.severity.toLowerCase()}`}>{gap.severity}</span>}</div>
-          <h3>{gap.title} <span className="finding-score">{gap.score === null ? "Insufficient data" : `${gap.score}/100`}</span></h3>
+          <h3>{gap.title}</h3>
           <p>{gap.summary}</p>
           <div className="finding-action-preview"><span>Recommended action</span><strong>{gap.nextAction}</strong></div>
         </div>
@@ -484,23 +497,23 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
   );
 }
 
-function comparisonValue(gap: Gap | undefined, estimatedClicks: number | null) {
-  if (!gap || gap.score === null) return "Insufficient";
-  return gap.id === "customer-journey-path" && estimatedClicks !== null ? `${estimatedClicks} clicks · ${gap.score}/100` : `${gap.score}/100`;
-}
-
 function CompetitorComparison({ result, competitor }: { result: AnalysisResult; competitor: PublicCompetitor }) {
   return (
     <article className="competitor-comparison">
-      <div className="comparison-row comparison-head">
-        <span>Signal</span>
-        <div><small>Analyzed company</small><strong>{result.companyName}</strong><em>{result.score === null ? "—" : `${result.score}% overall`}</em></div>
-        <div><small>Confirmed competitor · {competitor.pagesAnalyzed} pages</small><a href={competitor.url} target="_blank" rel="noreferrer">{competitor.name}<ExternalLink size={11} /></a><em>{competitor.score === null ? "—" : `${competitor.score}% overall`}</em></div>
-      </div>
-      {result.gaps.map((finding) => {
-        const competitorFinding = competitor.findings.find((item) => item.id === finding.id);
-        return <div className="comparison-row" key={finding.id}><span>{finding.title}</span><strong>{comparisonValue(finding, result.overview.estimatedClicks)}</strong><strong>{comparisonValue(competitorFinding, competitor.estimatedClicks)}</strong></div>;
-      })}
+      <section className="comparison-company" aria-labelledby="analyzed-company-heading">
+        <header>
+          <div><small>Analyzed company</small><h3 id="analyzed-company-heading">{result.companyName}</h3><span>{result.overview.estimatedClicks === null ? "Journey unconfirmed" : `${result.overview.estimatedClicks} clicks to conversion`}</span></div>
+          <FindingScoreRing score={result.score} label={`${result.companyName} overall`} />
+        </header>
+        <div className="comparison-findings">{result.gaps.map((finding) => <GapCard gap={finding} compact key={finding.id} />)}</div>
+      </section>
+      <section className="comparison-company comparison-company-competitor" aria-labelledby="competitor-company-heading">
+        <header>
+          <div><small>Confirmed direct competitor · {competitor.pagesAnalyzed} pages</small><h3 id="competitor-company-heading"><a href={competitor.url} target="_blank" rel="noreferrer">{competitor.name}<ExternalLink size={13} /></a></h3><span>{competitor.estimatedClicks === null ? "Journey unconfirmed" : `${competitor.estimatedClicks} clicks to conversion`}</span></div>
+          <FindingScoreRing score={competitor.score} label={`${competitor.name} overall`} />
+        </header>
+        <div className="comparison-findings">{competitor.findings.map((finding) => <GapCard gap={finding} compact key={finding.id} />)}</div>
+      </section>
     </article>
   );
 }
