@@ -1074,3 +1074,200 @@ body { font-variation-settings: "wght" 500; }
   .improvement-card { padding: 15px; }
   .finding-row > summary { padding: 17px 15px; }
 }
+
+/* Final responsive type scale: keep report content readable on every viewport. */
+.dashboard-sidebar nav a {
+  font-size: clamp(13px, .72vw, 15px);
+}
+
+.company-heading p,
+.breadcrumbs,
+.new-analysis-button {
+  font-size: clamp(12px, .68vw, 14px);
+}
+
+.finding-title h3 {
+  font-size: clamp(19px, 1.1vw, 23px);
+}
+
+.finding-title p {
+  font-size: clamp(14px, .8vw, 17px);
+  line-height: 1.55;
+}
+
+.finding-action-preview span {
+  font-size: clamp(11px, .6vw, 12px);
+}
+
+.finding-action-preview strong {
+  font-size: clamp(13px, .75vw, 16px);
+  line-height: 1.5;
+}
+
+.severity {
+  font-size: clamp(10px, .55vw, 12px);
+}
+
+.finding-score-ring strong {
+  font-size: clamp(13px, .75vw, 16px);
+}
+
+.finding-detail {
+  gap: clamp(22px, 2vw, 36px);
+}
+
+.finding-detail > div > span {
+  font-size: clamp(11px, .62vw, 13px);
+}
+
+.checklist-progress strong {
+  font-size: clamp(18px, 1vw, 22px);
+}
+
+.checklist-progress small {
+  font-size: clamp(11px, .62vw, 13px);
+}
+
+.finding-checklist li {
+  grid-template-columns: 23px minmax(0, 1fr);
+  gap: 9px;
+}
+
+.finding-checklist li > i {
+  width: 21px;
+  height: 21px;
+}
+
+.finding-checklist li strong {
+  font-size: clamp(13px, .72vw, 15px);
+  line-height: 1.4;
+}
+
+.finding-checklist li small {
+  font-size: clamp(11px, .62vw, 13px);
+  line-height: 1.45;
+}
+
+.finding-detail p {
+  font-size: clamp(14px, .78vw, 16px);
+  line-height: 1.6;
+}
+
+.finding-evidence a {
+  font-size: clamp(12px, .66vw, 14px);
+}
+
+.finding-action p {
+  font-size: clamp(14px, .8vw, 17px);
+}
+
+.improvement-card header small {
+  font-size: clamp(10px, .55vw, 12px);
+}
+
+.improvement-card h3 {
+  font-size: clamp(17px, 1vw, 21px);
+}
+
+.improvement-card li p {
+  font-size: clamp(14px, .8vw, 17px);
+  line-height: 1.55;
+}
+
+.improvement-card li > span {
+  font-size: 10px;
+}
+
+.competitor-scan-intro span {
+  font-size: clamp(10px, .55vw, 12px);
+}
+
+.competitor-scan-intro h2 {
+  font-size: clamp(20px, 1.15vw, 24px);
+}
+
+.competitor-scan-intro p,
+.competitor-scan-results > header {
+  font-size: clamp(13px, .74vw, 15px);
+}
+
+.comparison-site small,
+.comparison-site span:not(.comparison-score) {
+  font-size: clamp(11px, .62vw, 13px);
+}
+
+.comparison-site strong,
+.comparison-site a {
+  font-size: clamp(17px, 1vw, 21px);
+}
+
+.comparison-finding > header strong {
+  font-size: clamp(13px, .74vw, 16px);
+}
+
+.comparison-finding-value > div > strong {
+  font-size: clamp(13px, .75vw, 16px);
+}
+
+.comparison-finding-value p {
+  font-size: clamp(13px, .74vw, 16px);
+  line-height: 1.5;
+}
+
+.technical-section > summary strong {
+  font-size: clamp(13px, .74vw, 16px);
+}
+
+.technical-section > summary small,
+.score-method-rows span,
+.pages-table-row {
+  font-size: clamp(12px, .66vw, 14px);
+}
+
+.score-method-rows small,
+.pages-table-row small {
+  font-size: clamp(11px, .6vw, 13px);
+}
+
+.report-scope-popover > button,
+.report-scope-popover > div {
+  font-size: clamp(12px, .68vw, 14px);
+}
+
+@media (max-width: 620px) {
+  .company-heading p {
+    font-size: 12px;
+  }
+
+  .finding-row > summary {
+    row-gap: 12px;
+  }
+
+  .finding-detail {
+    padding: 18px 15px;
+    gap: 22px;
+  }
+
+  .finding-title h3 {
+    font-size: 19px;
+  }
+
+  .finding-title p,
+  .finding-detail p,
+  .comparison-finding-value p {
+    font-size: 14px;
+  }
+
+  .finding-action-preview strong,
+  .finding-checklist li strong {
+    font-size: 13px;
+  }
+
+  .finding-checklist li small {
+    font-size: 11px;
+  }
+
+  .improvement-card li p {
+    font-size: 14px;
+  }
+}
