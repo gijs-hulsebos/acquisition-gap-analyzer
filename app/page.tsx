@@ -28,7 +28,7 @@ import { readAnalysisResponse } from "@/lib/api-response";
 import { DEMO_COMPETITOR_RESULT, DEMO_RESULT } from "@/lib/fixture";
 
 type View = "landing" | "loading" | "results";
-type DashboardSection = "overview" | "gaps" | "evidence";
+type DashboardSection = "overview" | "gaps" | "improvement" | "evidence";
 
 const LOADING_STEPS = [
   { label: "Crawling site", detail: "Pages and links" },
@@ -240,7 +240,7 @@ function Sidebar({ result, onReset }: { result: AnalysisResult; onReset: () => v
   useEffect(() => {
     const syncActiveSection = () => {
       const section = window.location.hash.slice(1) as DashboardSection;
-      setActiveSection(["overview", "gaps", "evidence"].includes(section) ? section : "overview");
+      setActiveSection(["overview", "gaps", "improvement", "evidence"].includes(section) ? section : "overview");
     };
 
     syncActiveSection();
@@ -273,6 +273,7 @@ function Sidebar({ result, onReset }: { result: AnalysisResult; onReset: () => v
       <nav aria-label="Analysis navigation">
         <a className={activeSection === "overview" ? "active" : undefined} href="#overview" aria-current={activeSection === "overview" ? "location" : undefined} onClick={(event) => navigateTo(event, "overview")}><LayoutDashboard size={17} /> Overview</a>
         <a className={activeSection === "gaps" ? "active" : undefined} href="#gaps" aria-current={activeSection === "gaps" ? "location" : undefined} onClick={(event) => navigateTo(event, "gaps")}><Target size={17} /> Findings <span>{result.gaps.length}</span></a>
+        <a className={activeSection === "improvement" ? "active" : undefined} href="#improvement" aria-current={activeSection === "improvement" ? "location" : undefined} onClick={(event) => navigateTo(event, "improvement")}><Sparkles size={17} /> Improvement report</a>
         <a className={activeSection === "evidence" ? "active" : undefined} href="#evidence" aria-current={activeSection === "evidence" ? "location" : undefined} onClick={(event) => navigateTo(event, "evidence")}><FileSearch size={17} /> Technical details</a>
       </nav>
       <div className="sidebar-system">
@@ -548,7 +549,7 @@ function CompetitorComparison({ company, competitor }: { company: AnalysisResult
   );
 }
 
-function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
+function PublicCompetitorScan({ result, onCompetitorChange }: { result: AnalysisResult; onCompetitorChange: (competitor: AnalysisResult | null) => void }) {
   const isDemo = result.mode === "fixture";
   const [status, setStatus] = useState<"idle" | "scanning" | "complete" | "error">(() => isDemo ? "complete" : "idle");
   const [competitorUrl, setCompetitorUrl] = useState("");
@@ -558,9 +559,10 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
   useEffect(() => {
     setStatus(isDemo ? "complete" : "idle");
     setCompetitor(isDemo ? DEMO_COMPETITOR_RESULT : null);
+    onCompetitorChange(isDemo ? DEMO_COMPETITOR_RESULT : null);
     setCompetitorUrl("");
     setError("");
-  }, [isDemo, result.id]);
+  }, [isDemo, result.id, onCompetitorChange]);
 
   async function runScan(event: FormEvent) {
     event.preventDefault();
@@ -577,10 +579,11 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
       const response = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: competitorUrl }),
+        body: JSON.stringify({ url: competitorUrl, comparisonBase: result }),
       });
       const payload = await readAnalysisResponse(response);
       setCompetitor(payload);
+      onCompetitorChange(payload);
       setStatus("complete");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The competitor scan failed.");
@@ -606,10 +609,35 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
       {status === "error" && <p className="competitor-scan-error">{error}</p>}
       {status === "complete" && competitor && (
         <div className="competitor-scan-results">
-          <header><span>The same three findings were analyzed for both websites.</span><button type="button" onClick={() => { setStatus("idle"); setCompetitor(null); setError(""); }}>Compare another URL</button></header>
+          <header><span>The same three findings were analyzed for both websites.</span><button type="button" onClick={() => { setStatus("idle"); setCompetitor(null); onCompetitorChange(null); setError(""); }}>Compare another URL</button></header>
           <CompetitorComparison company={result} competitor={competitor} />
         </div>
       )}
+    </section>
+  );
+}
+
+function ImprovementReportSection({ result, competitor }: { result: AnalysisResult; competitor: AnalysisResult | null }) {
+  const sections = [
+    { key: "strengths", eyebrow: "01 · Strengths", title: "What is done well", icon: Check, items: result.improvementReport.whatIsDoneWell },
+    { key: "improvements", eyebrow: "02 · Opportunities", title: "What could be better", icon: Target, items: result.improvementReport.whatCouldBeBetter },
+    ...(competitor ? [{ key: "competitor", eyebrow: "03 · Comparison", title: `What ${competitor.companyName} does differently`, icon: BarChart3, items: competitor.improvementReport.competitorComparison }] : []),
+  ];
+
+  return (
+    <section className="improvement-section" id="improvement" aria-labelledby="improvement-heading">
+      <div className="section-heading improvement-heading">
+        <div><span>Evidence-based summary</span><h2 id="improvement-heading">Improvement report</h2></div>
+        <span className="report-source"><Sparkles size={12} /> {result.llmEnhanced || competitor?.llmEnhanced ? "OpenRouter synthesis" : "Evidence summary"}</span>
+      </div>
+      <div className={`improvement-grid ${competitor ? "has-comparison" : ""}`}>
+        {sections.map(({ key, eyebrow, title, icon: Icon, items }) => (
+          <article className={`improvement-card improvement-${key}`} key={key}>
+            <header><span><Icon size={16} /></span><div><small>{eyebrow}</small><h3>{title}</h3></div></header>
+            <ul>{items.map((item, index) => <li key={`${key}-${index}`}><span>{index + 1}</span><p>{item}</p></li>)}</ul>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
@@ -679,6 +707,12 @@ function TechnicalDetails({ result }: { result: AnalysisResult }) {
 }
 
 function ResultsView({ result, onReset }: { result: AnalysisResult; onReset: () => void }) {
+  const [competitor, setCompetitor] = useState<AnalysisResult | null>(() => result.mode === "fixture" ? DEMO_COMPETITOR_RESULT : null);
+
+  useEffect(() => {
+    setCompetitor(result.mode === "fixture" ? DEMO_COMPETITOR_RESULT : null);
+  }, [result.id, result.mode]);
+
   return (
     <div className="dashboard-shell">
       <AmbientBackground subtle />
@@ -704,7 +738,7 @@ function ResultsView({ result, onReset }: { result: AnalysisResult; onReset: () 
             <AcquisitionJourney result={result} />
           </section>
 
-          <PublicCompetitorScan result={result} />
+          <PublicCompetitorScan result={result} onCompetitorChange={setCompetitor} />
 
           <section className="gaps-section" id="gaps">
             <div className="section-heading">
@@ -713,6 +747,8 @@ function ResultsView({ result, onReset }: { result: AnalysisResult; onReset: () 
             </div>
             <div className="gap-list">{result.gaps.map((gap) => <GapCard gap={gap} key={gap.id} />)}</div>
           </section>
+
+          <ImprovementReportSection result={result} competitor={competitor} />
 
           <TechnicalDetails result={result} />
 

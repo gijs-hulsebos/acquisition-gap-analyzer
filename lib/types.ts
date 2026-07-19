@@ -100,6 +100,13 @@ export type CrawlStats = {
   processingMs: number;
 };
 
+export type ImprovementReport = {
+  whatIsDoneWell: string[];
+  whatCouldBeBetter: string[];
+  /** Populated only when this result was generated as a competitor comparison. */
+  competitorComparison: string[];
+};
+
 export type AnalysisResult = {
   id: string;
   mode: AnalysisMode;
@@ -125,6 +132,8 @@ export type AnalysisResult = {
     type: JourneyPageType;
     statusCode: number;
   }>;
+  /** Evidence-bound synthesis. OpenRouter improves the wording when configured. */
+  improvementReport: ImprovementReport;
   llmEnhanced: boolean;
 };
 

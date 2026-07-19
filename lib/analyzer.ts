@@ -358,6 +358,17 @@ function scoreLabel(score: number | null) {
   return "Leaking demand";
 }
 
+function improvementReport(gaps: Gap[]) {
+  const ranked = [...gaps].filter((gap) => gap.score !== null).sort((a, b) => (b.score || 0) - (a.score || 0));
+  const strengths = ranked.filter((gap) => (gap.score || 0) >= 70).slice(0, 2);
+  const improvements = [...ranked].reverse().filter((gap) => (gap.score || 0) < 85).slice(0, 2);
+  return {
+    whatIsDoneWell: (strengths.length ? strengths : ranked.slice(0, 1)).map((gap) => `${gap.title}: ${gap.summary}`),
+    whatCouldBeBetter: (improvements.length ? improvements : gaps.slice(0, 1)).map((gap) => `${gap.title}: ${gap.nextAction}`),
+    competitorComparison: [],
+  };
+}
+
 export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, processingMs: number): AnalysisResult {
   const pages = buildFacts(crawledPages, analyzedUrl);
   const homepage = findHomepage(pages, analyzedUrl);
@@ -385,6 +396,7 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
     stats: { pagesCrawled: pages.length, internalLinks: internalLinks.size, actionsFound: pages.reduce((sum, page) => sum + page.clickables.length, 0), conversionPathSteps: journey.primary.clicksToInterface, processingMs },
     journey,
     pages: pages.map((page) => ({ title: page.title, url: page.url, type: pageType(page, homepage), statusCode: page.statusCode })),
+    improvementReport: improvementReport(categories.map((item, index) => finding(item, homepage, index + 1))),
     llmEnhanced: false,
   };
 }

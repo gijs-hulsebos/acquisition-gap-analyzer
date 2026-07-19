@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { analyzeCrawl } from "../lib/analyzer";
 import { DEMO_COMPETITOR_RESULT, DEMO_RESULT } from "../lib/fixture";
+import { enhanceFindings } from "../lib/llm";
 import type { CrawlPage } from "../lib/types";
 
 function page(url: string, title: string, html: string, links: string[] = []): CrawlPage {
@@ -56,6 +57,8 @@ describe("simple acquisition report", () => {
     expect(DEMO_COMPETITOR_RESULT.companyName).toBe("Søstrene Grene");
     expect(DEMO_COMPETITOR_RESULT.score).toBe(91);
     expect(DEMO_COMPETITOR_RESULT.gaps.find((gap) => gap.id === "purchase-confidence")?.score).toBe(75);
+    expect(DEMO_RESULT.improvementReport.whatIsDoneWell.length).toBeGreaterThan(0);
+    expect(DEMO_COMPETITOR_RESULT.improvementReport.competitorComparison).toHaveLength(3);
     expect(DEMO_COMPETITOR_RESULT.overview.estimatedClicks).toBe(3);
     expect(DEMO_COMPETITOR_RESULT.gaps.map((gap) => gap.id)).toEqual(DEMO_RESULT.gaps.map((gap) => gap.id));
   });
@@ -117,6 +120,17 @@ describe("simple acquisition report", () => {
 
     expect(company.gaps.find((gap) => gap.id === "customer-journey-path")?.summary).toContain("4 clicks");
     expect(competitor.gaps.find((gap) => gap.id === "customer-journey-path")?.summary).toContain("3 clicks");
+  });
+
+  it("adds an evidence-based comparison report for a second scan", async () => {
+    const company = analyzeCrawl(directProductPages(false), "https://direct-shop.nl/", 100);
+    const competitor = analyzeCrawl(directProductPages(true), "https://direct-shop.nl/", 100);
+    const compared = await enhanceFindings(competitor, undefined, company);
+
+    expect(compared.improvementReport.whatIsDoneWell.length).toBeGreaterThan(0);
+    expect(compared.improvementReport.whatCouldBeBetter.length).toBeGreaterThan(0);
+    expect(compared.improvementReport.competitorComparison).toHaveLength(3);
+    expect(compared.improvementReport.competitorComparison.join(" ")).toContain("Direct Shop");
   });
 
   it("estimates the journey when a dynamic Add to cart label is not captured", () => {

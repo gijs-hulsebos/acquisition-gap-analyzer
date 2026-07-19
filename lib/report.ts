@@ -17,6 +17,7 @@ export async function buildAnalysisResult(
   url: string,
   startedAt: number,
   enhancementTimeoutMs = 8_000,
+  comparisonBase?: AnalysisResult,
 ): Promise<AnalysisResult> {
   const deterministic = analyzeCrawl(pages, url, Date.now() - startedAt);
   let result = deterministic;
@@ -24,13 +25,15 @@ export async function buildAnalysisResult(
   if (process.env.OPENROUTER_API_KEY && enhancementTimeoutMs > 0) {
     try {
       result = await withTimeout(
-        enhanceFindings(deterministic, process.env.OPENROUTER_API_KEY),
+        enhanceFindings(deterministic, process.env.OPENROUTER_API_KEY, comparisonBase),
         enhancementTimeoutMs,
         "Report copy enhancement timed out.",
       );
     } catch {
-      result = deterministic;
+      result = await enhanceFindings(deterministic, undefined, comparisonBase);
     }
+  } else if (comparisonBase) {
+    result = await enhanceFindings(deterministic, undefined, comparisonBase);
   }
 
   return { ...result, stats: { ...result.stats, processingMs: Date.now() - startedAt } };

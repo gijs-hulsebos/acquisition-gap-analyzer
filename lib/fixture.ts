@@ -96,6 +96,17 @@ export const DEMO_RESULT: AnalysisResult = {
     { title: "Winkelmandje", url: `${DILLE_URL}/cart`, type: "Cart", statusCode: 200 },
     { title: "Afrekenen", url: `${DILLE_URL}/checkout`, type: "Checkout", statusCode: 200 },
   ],
+  improvementReport: {
+    whatIsDoneWell: [
+      "The landing page clearly presents the product range and shopping intent.",
+      "The representative route to checkout is short and easy to follow.",
+    ],
+    whatCouldBeBetter: [
+      "Show payment methods and guarantees closer to featured products.",
+      "Make purchase reassurance as visible as product discovery.",
+    ],
+    competitorComparison: [],
+  },
   gaps: [
     {
       id: "offer-clarity",
@@ -227,6 +238,20 @@ export const DEMO_COMPETITOR_RESULT: AnalysisResult = {
     { title: "Cart", url: `${SOSTRENE_URL}/cart`, type: "Cart", statusCode: 200 },
     { title: "Checkout", url: `${SOSTRENE_URL}/checkout`, type: "Checkout", statusCode: 200 },
   ],
+  improvementReport: {
+    whatIsDoneWell: [
+      "The landing page makes the assortment immediately clear.",
+      "Visitors can add a featured product to the cart without opening its product page first.",
+    ],
+    whatCouldBeBetter: [
+      "Add visible customer reviews and direct support details near products.",
+    ],
+    competitorComparison: [
+      "Søstrene Grene provides more purchase-confidence signals than Dille & Kamille (75% versus 65%).",
+      "Its landing-page Add to cart route is one click shorter: three clicks to checkout versus four.",
+      "Both websites communicate their product range clearly.",
+    ],
+  },
   gaps: [
     {
       id: "offer-clarity",
