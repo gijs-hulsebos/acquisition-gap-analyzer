@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import type { AnalysisResult, Gap } from "@/lib/types";
 import { readAnalysisResponse } from "@/lib/api-response";
-import { DEMO_RESULT } from "@/lib/fixture";
+import { DEMO_COMPETITOR_RESULT, DEMO_RESULT } from "@/lib/fixture";
 
 type View = "landing" | "loading" | "results";
 type DashboardSection = "overview" | "gaps" | "evidence";
@@ -549,10 +549,18 @@ function CompetitorComparison({ company, competitor }: { company: AnalysisResult
 }
 
 function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
-  const [status, setStatus] = useState<"idle" | "scanning" | "complete" | "error">("idle");
+  const isDemo = result.mode === "fixture";
+  const [status, setStatus] = useState<"idle" | "scanning" | "complete" | "error">(() => isDemo ? "complete" : "idle");
   const [competitorUrl, setCompetitorUrl] = useState("");
-  const [competitor, setCompetitor] = useState<AnalysisResult | null>(null);
+  const [competitor, setCompetitor] = useState<AnalysisResult | null>(() => isDemo ? DEMO_COMPETITOR_RESULT : null);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    setStatus(isDemo ? "complete" : "idle");
+    setCompetitor(isDemo ? DEMO_COMPETITOR_RESULT : null);
+    setCompetitorUrl("");
+    setError("");
+  }, [isDemo, result.id]);
 
   async function runScan(event: FormEvent) {
     event.preventDefault();

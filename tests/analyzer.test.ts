@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeCrawl } from "../lib/analyzer";
+import { DEMO_COMPETITOR_RESULT, DEMO_RESULT } from "../lib/fixture";
 import type { CrawlPage } from "../lib/types";
 
 function page(url: string, title: string, html: string, links: string[] = []): CrawlPage {
@@ -50,6 +51,13 @@ function directProductPages(homepageAdd = false) {
 }
 
 describe("simple acquisition report", () => {
+  it("ships the saved Dille & Kamille and Søstrene Grene demo comparison", () => {
+    expect(DEMO_RESULT.companyName).toBe("Dille & Kamille");
+    expect(DEMO_COMPETITOR_RESULT.companyName).toBe("Søstrene Grene");
+    expect(DEMO_COMPETITOR_RESULT.overview.estimatedClicks).toBe(3);
+    expect(DEMO_COMPETITOR_RESULT.gaps.map((gap) => gap.id)).toEqual(DEMO_RESULT.gaps.map((gap) => gap.id));
+  });
+
   it("always returns exactly the three requested findings", () => {
     const result = analyzeCrawl(ecommercePages(), "https://shop.nl/", 100);
     expect(result.gaps.map((gap) => gap.id)).toEqual([
