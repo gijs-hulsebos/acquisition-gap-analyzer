@@ -329,6 +329,18 @@ function GapCard({ gap }: { gap: Gap }) {
         <ChevronRight className="finding-chevron" size={18} />
       </summary>
       <div className="finding-detail">
+        <div className="finding-checklist">
+          <span>Path to 100%</span>
+          <div className="checklist-progress"><strong>{gap.checklist.filter((item) => item.status === "met").length}/{gap.checklist.length}</strong><small>criteria met</small></div>
+          <ul>
+            {gap.checklist.map((item) => (
+              <li className={`criterion-${item.status}`} key={item.label} title={item.detail}>
+                <i>{item.status === "met" ? <Check size={11} /> : item.status === "partial" ? "–" : "×"}</i>
+                <span><strong>{item.label}</strong><small>{item.detail}</small></span>
+              </li>
+            ))}
+          </ul>
+        </div>
         <div className="finding-evidence">
           <span>Evidence</span>
           {gap.evidence.map((evidence, index) => (
@@ -337,6 +349,10 @@ function GapCard({ gap }: { gap: Gap }) {
               <a href={evidence.url} target="_blank" rel="noreferrer">{evidence.pageLabel} <ExternalLink size={11} /></a>
             </div>
           ))}
+        </div>
+        <div className="finding-action">
+          <span>Recommended action</span>
+          <p>{gap.nextAction}</p>
         </div>
       </div>
     </details>
@@ -752,10 +768,10 @@ function ResultsView({ result, onReset }: { result: AnalysisResult; onReset: () 
 
           <TechnicalDetails result={result} />
 
-          <aside className="report-disclaimer" aria-label="Report scope disclaimer">
-            <CircleAlert size={15} />
-            <p><strong>Report scope.</strong> This heuristic maps the domain and inspects up to eight representative journey pages. It never purchases, creates accounts or submits forms, and cannot confirm visual prominence, personalization, logged-in steps or routes outside the selected pages.</p>
-          </aside>
+          <div className="report-scope-popover">
+            <button type="button" aria-describedby="report-scope-tooltip"><CircleAlert size={15} /> Report scope</button>
+            <div id="report-scope-tooltip" role="tooltip">This heuristic maps the domain and inspects up to eight representative journey pages. It never purchases, creates accounts or submits forms, and cannot confirm visual prominence, personalization, logged-in steps or routes outside the selected pages.</div>
+          </div>
 
           <footer className="dashboard-footer">
             <span>Processed in {formatDuration(result.stats.processingMs)}</span>

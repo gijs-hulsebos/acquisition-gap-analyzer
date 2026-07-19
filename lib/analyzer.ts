@@ -218,8 +218,8 @@ function firstSnippet(text: string, pattern: RegExp) {
   return text.split(/(?<=[.!?])\s+/).map((sentence) => sentence.trim()).find((sentence) => pattern.test(sentence))?.slice(0, 180) || null;
 }
 
-function category(id: ReadinessCategory["id"], label: string, score: number | null, confidence: Confidence, explanation: string, evidence: Evidence[], recommendation: string): ReadinessCategory {
-  return { id, label, score, weight: WEIGHTS[id], confidence, explanation, evidence, recommendation };
+function category(id: ReadinessCategory["id"], label: string, score: number | null, confidence: Confidence, explanation: string, evidence: Evidence[], recommendation: string, checklist: ReadinessCategory["checklist"]): ReadinessCategory {
+  return { id, label, score, weight: WEIGHTS[id], confidence, explanation, evidence, recommendation, checklist };
 }
 
 function offerCategory(homepage: PageFacts, pages: PageFacts[], primaryOffer: string, targetCustomer: string) {
@@ -247,7 +247,11 @@ function offerCategory(homepage: PageFacts, pages: PageFacts[], primaryOffer: st
         ? "Products are visible, but the next shopping action is not explicit enough."
         : "The landing page does not make the sellable assortment immediately clear.";
     const recommendation = !assortmentVisible ? `Show representative categories or products for ${primaryOffer} on the landing page.` : !shoppingIntent ? "Add one explicit Browse products, Search or Shop action beside the assortment." : "Keep the assortment and shopping action visible together.";
-    return category("offer-clarity", "Offer Clarity", score, confidenceFor(pages.length, evidence.length), explanation, evidence, recommendation);
+    return category("offer-clarity", "Offer Clarity", score, confidenceFor(pages.length, evidence.length), explanation, evidence, recommendation, [
+      { label: "The offer is explicit in the main heading", status: headingSpecific ? "met" : assortmentVisible ? "partial" : "missing", detail: headingSpecific ? `Heading: “${homepage.h1}”` : assortmentVisible ? "The assortment is visible, but the heading is less specific." : "No explicit offer was found in the heading." },
+      { label: "Representative products or categories are visible", status: assortmentVisible ? "met" : "missing", detail: assortmentVisible ? "Product, price or category signals were detected." : "No representative assortment was detected." },
+      { label: "A clear browse, shop or search action is available", status: shoppingIntent ? "met" : "missing", detail: browseAction?.text || (searchVisible ? "Search control detected." : "No shopping action was detected.") },
+    ]);
   }
 
   const whatClear = headingSpecific || offerTokens.filter((token) => homepageText.toLowerCase().includes(token)).length >= 2;
@@ -257,7 +261,11 @@ function offerCategory(homepage: PageFacts, pages: PageFacts[], primaryOffer: st
   return category("offer-clarity", "Offer Clarity", score, confidenceFor(pages.length, [whatClear, audience, commercial].filter(Boolean).length), whatClear && commercial ? "The landing page explains the offer and exposes a concrete next step." : "The landing page does not make both the offer and conversion step immediately clear.", [
     { statement: whatClear ? `Landing-page offer evidence: “${homepage.h1 || primaryOffer}”.` : "The landing-page heading and opening copy do not clearly name the offer.", pageLabel: "Landing-page offer", url: homepage.url },
     { statement: commercial ? `Primary action: “${commercial.text}”.` : "No explicit commercial action was detected on the landing page.", pageLabel: "Conversion intent", url: homepage.url },
-  ], !whatClear ? `Name ${primaryOffer} directly in the landing-page heading.` : !commercial ? "Add one explicit action describing the next customer step." : `Keep the offer and action clear for ${targetCustomer}.`);
+  ], !whatClear ? `Name ${primaryOffer} directly in the landing-page heading.` : !commercial ? "Add one explicit action describing the next customer step." : `Keep the offer and action clear for ${targetCustomer}.`, [
+    { label: "The offer is immediately clear", status: whatClear ? "met" : "missing", detail: whatClear ? `Offer evidence: “${homepage.h1 || primaryOffer}”.` : "The opening copy does not clearly name the offer." },
+    { label: "The intended customer is identified", status: audience ? "met" : "missing", detail: audience || "No explicit audience statement was detected." },
+    { label: "A concrete commercial next step is visible", status: commercial ? "met" : "missing", detail: commercial?.text || "No commercial action was detected." },
+  ]);
 }
 
 function buildEcommerceJourney(pages: PageFacts[], homepage: PageFacts, primaryOffer: string): JourneyAnalysis {
@@ -335,19 +343,30 @@ function purchaseConfidenceCategory(homepage: PageFacts, pages: PageFacts[]) {
   const explanation = detected.length
     ? `${detected.length} of ${signals.length} purchase-confidence signals were found: ${detected.map((signal) => signal.label).join(", ")}.`
     : "The representative pages contain little visible reassurance for a purchase decision.";
-  return category("purchase-confidence", "Purchase Confidence", score, confidenceFor(pages.length, detected.length), explanation, evidence, missing[0]?.recommendation || "Keep purchase reassurance visible throughout the journey.");
+  return category("purchase-confidence", "Purchase Confidence", score, confidenceFor(pages.length, detected.length), explanation, evidence, missing[0]?.recommendation || "Keep purchase reassurance visible throughout the journey.", signals.map((signal) => {
+    const match = detected.find((item) => item.label === signal.label);
+    return { label: `${signal.label.replace(/^./, (letter) => letter.toUpperCase())} (${signal.weight}%)`, status: match ? "met" as const : "missing" as const, detail: match ? `Detected on “${match.page.title}”.` : signal.recommendation };
+  }));
 }
 
 function journeyCategory(homepage: PageFacts, journey: JourneyAnalysis) {
   const complete = journey.primary.status === "complete";
   const steps = journey.primary.clicksToInterface;
   const ecommerce = journey.businessModels.includes("Ecommerce");
-  const score = complete ? steps !== null && steps <= (ecommerce ? 4 : 1) ? 95 : steps !== null && steps <= (ecommerce ? 5 : 2) ? 80 : 55 : 10;
-  return category("customer-journey-path", "Customer Journey Path", score, journey.primary.confidence, complete ? `From an empty cart, the estimated landing-page-to-${ecommerce ? "checkout" : "conversion"} path takes ${steps} click${steps === 1 ? "" : "s"}.` : "Incomplete journey: product discovery or the primary conversion action could not be verified.", [{ statement: complete ? `Estimated path: ${journey.primary.stages.map((stage) => stage.pageType).join(" → ")} (${steps} clicks).` : journey.primary.limitations[0], pageLabel: complete ? "Customer journey" : "Incomplete journey", url: homepage.url }], complete ? "Keep the shortest route to checkout visible." : ecommerce ? "Link product discovery clearly to a product with Add to cart." : "Expose one complete route to the primary conversion interface.");
+  const score = complete ? steps !== null && steps <= (ecommerce ? 3 : 1) ? 100 : steps !== null && steps <= (ecommerce ? 4 : 2) ? 95 : steps !== null && steps <= (ecommerce ? 5 : 3) ? 80 : 55 : 10;
+  const hasAction = journey.primary.stages.some((stage) => Boolean(stage.ctaText) || stage.nextStepVisible);
+  const hasDestination = journey.primary.destinationUrl !== null;
+  const idealClicks = ecommerce ? 3 : 1;
+  return category("customer-journey-path", "Customer Journey Path", score, journey.primary.confidence, complete ? `From an empty cart, the estimated landing-page-to-${ecommerce ? "checkout" : "conversion"} path takes ${steps} click${steps === 1 ? "" : "s"}.` : "Incomplete journey: product discovery or the primary conversion action could not be verified.", [{ statement: complete ? `Estimated path: ${journey.primary.stages.map((stage) => stage.pageType).join(" → ")} (${steps} clicks).` : journey.primary.limitations[0], pageLabel: complete ? "Customer journey" : "Incomplete journey", url: homepage.url }], complete ? "Keep the shortest route to checkout visible." : ecommerce ? "Link product discovery clearly to a product with Add to cart." : "Expose one complete route to the primary conversion interface.", [
+    { label: "A complete route starts on the landing page", status: complete ? "met" : "missing", detail: complete ? "A representative route was mapped." : journey.primary.limitations[0] },
+    { label: "The primary conversion action is detectable", status: hasAction ? "met" : "missing", detail: hasAction ? "A required next action was detected." : "No required next action was detected." },
+    { label: `The ${ecommerce ? "cart and checkout" : "conversion destination"} can be mapped`, status: hasDestination ? "met" : "missing", detail: hasDestination ? "A destination page or state was identified." : "The destination could not be identified." },
+    { label: `${idealClicks} click${idealClicks === 1 ? "" : "s"} or fewer to conversion`, status: complete && steps !== null && steps <= idealClicks ? "met" : complete ? "partial" : "missing", detail: steps === null ? "Click count is unavailable." : `${steps} clicks were estimated.` },
+  ]);
 }
 
 function finding(categoryItem: ReadinessCategory, homepage: PageFacts, rank: number): Gap {
-  return { id: categoryItem.id, rank, title: categoryItem.label, summary: categoryItem.explanation, severity: severityFor(categoryItem.score), score: categoryItem.score, confidence: categoryItem.confidence, evidence: categoryItem.evidence.length ? categoryItem.evidence : [{ statement: categoryItem.explanation, pageLabel: "Crawl evidence", url: homepage.url }], nextAction: categoryItem.recommendation || "Improve this journey stage." };
+  return { id: categoryItem.id, rank, title: categoryItem.label, summary: categoryItem.explanation, severity: severityFor(categoryItem.score), score: categoryItem.score, confidence: categoryItem.confidence, evidence: categoryItem.evidence.length ? categoryItem.evidence : [{ statement: categoryItem.explanation, pageLabel: "Crawl evidence", url: homepage.url }], checklist: categoryItem.checklist, nextAction: categoryItem.recommendation || "Improve this journey stage." };
 }
 
 function scoreLabel(score: number | null) {

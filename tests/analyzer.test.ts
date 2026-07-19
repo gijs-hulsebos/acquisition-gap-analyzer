@@ -55,7 +55,7 @@ describe("simple acquisition report", () => {
   it("ships the saved Dille & Kamille and Søstrene Grene demo comparison", () => {
     expect(DEMO_RESULT.companyName).toBe("Dille & Kamille");
     expect(DEMO_COMPETITOR_RESULT.companyName).toBe("Søstrene Grene");
-    expect(DEMO_COMPETITOR_RESULT.score).toBe(91);
+    expect(DEMO_COMPETITOR_RESULT.score).toBe(93);
     expect(DEMO_COMPETITOR_RESULT.gaps.find((gap) => gap.id === "purchase-confidence")?.score).toBe(75);
     expect(DEMO_RESULT.improvementReport.whatIsDoneWell.length).toBeGreaterThan(0);
     expect(DEMO_COMPETITOR_RESULT.improvementReport.competitorComparison).toHaveLength(3);
@@ -70,6 +70,8 @@ describe("simple acquisition report", () => {
       "purchase-confidence",
       "customer-journey-path",
     ]);
+    expect(result.gaps.every((gap) => gap.checklist.length > 0)).toBe(true);
+    expect(result.gaps.find((gap) => gap.id === "purchase-confidence")?.checklist).toHaveLength(8);
   });
 
   it("scores offer clarity from the landing page", () => {

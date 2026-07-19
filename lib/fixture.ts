@@ -1,8 +1,56 @@
-import type { AnalysisResult } from "./types";
+import type { AnalysisResult, FindingCriterion, GapId } from "./types";
 
 const DILLE_URL = "https://www.dille-kamille.nl";
 const SOSTRENE_URL = "https://sostrenegrene.com/nl";
 const SOSTRENE_PRODUCT_URL = "https://sostrenegrene.com/nl/producten/meubilair/wandrek-p-5b73eb86";
+
+const DILLE_CHECKLISTS: Record<GapId, FindingCriterion[]> = {
+  "offer-clarity": [
+    { label: "The offer is explicit in the main heading", status: "partial", detail: "The assortment is clear from product collections, while the heading is brand-led." },
+    { label: "Representative products or categories are visible", status: "met", detail: "Product collections, cards and prices are visible." },
+    { label: "A clear browse, shop or search action is available", status: "met", detail: "Category navigation and assortment links are visible." },
+  ],
+  "purchase-confidence": [
+    { label: "Clear pricing (10%)", status: "met", detail: "Product prices are visible." },
+    { label: "Delivery information (15%)", status: "met", detail: "Fast-shipping information is visible." },
+    { label: "Returns or refunds (15%)", status: "met", detail: "The 100-day return period is visible." },
+    { label: "Reviews or ratings (15%)", status: "met", detail: "Customer ratings are visible." },
+    { label: "Payment reassurance (15%)", status: "missing", detail: "Show accepted payment methods near products." },
+    { label: "Customer support (10%)", status: "met", detail: "Customer-service details are visible." },
+    { label: "Guarantees or certification (10%)", status: "missing", detail: "Show guarantees or certifications near purchase decisions." },
+    { label: "Availability (10%)", status: "missing", detail: "Make availability explicit near products." },
+  ],
+  "customer-journey-path": [
+    { label: "A complete route starts on the landing page", status: "met", detail: "A representative route was mapped." },
+    { label: "The primary conversion action is detectable", status: "met", detail: "Add to cart is visible on the product page." },
+    { label: "The cart and checkout can be mapped", status: "met", detail: "Cart and checkout stages were identified." },
+    { label: "3 clicks or fewer to conversion", status: "partial", detail: "The representative route takes 4 clicks." },
+  ],
+};
+
+const SOSTRENE_CHECKLISTS: Record<GapId, FindingCriterion[]> = {
+  "offer-clarity": [
+    { label: "The offer is explicit in the main heading", status: "met", detail: "Named collections clarify the assortment." },
+    { label: "Representative products or categories are visible", status: "met", detail: "Product cards, collections and prices are visible." },
+    { label: "A clear browse, shop or search action is available", status: "met", detail: "Product discovery actions are visible." },
+  ],
+  "purchase-confidence": [
+    { label: "Clear pricing (10%)", status: "met", detail: "Product prices are visible." },
+    { label: "Delivery information (15%)", status: "met", detail: "Delivery timing is stated." },
+    { label: "Returns or refunds (15%)", status: "met", detail: "Free in-store returns are stated." },
+    { label: "Reviews or ratings (15%)", status: "missing", detail: "No visible customer reviews were recorded." },
+    { label: "Payment reassurance (15%)", status: "met", detail: "Secure payment methods are shown." },
+    { label: "Customer support (10%)", status: "missing", detail: "Direct support details were not recorded near products." },
+    { label: "Guarantees or certification (10%)", status: "met", detail: "FSC certification is shown." },
+    { label: "Availability (10%)", status: "met", detail: "Stock availability is shown." },
+  ],
+  "customer-journey-path": [
+    { label: "A complete route starts on the landing page", status: "met", detail: "A representative route was mapped." },
+    { label: "The primary conversion action is detectable", status: "met", detail: "Add to cart is available on the landing page." },
+    { label: "The cart and checkout can be mapped", status: "met", detail: "Cart and checkout stages were identified." },
+    { label: "3 clicks or fewer to conversion", status: "met", detail: "The representative route takes 3 clicks." },
+  ],
+};
 
 export const DEMO_RESULT: AnalysisResult = {
   id: "demo-dille-kamille-2026",
@@ -39,6 +87,7 @@ export const DEMO_RESULT: AnalysisResult = {
         confidence: "High",
         explanation: "The landing page clearly presents home, kitchen and lifestyle products.",
         evidence: [{ statement: "The landing page shows product collections, product cards and prices.", pageLabel: "Dille & Kamille landing page", url: DILLE_URL }],
+        checklist: DILLE_CHECKLISTS["offer-clarity"],
         recommendation: "Keep the assortment and category navigation visible together.",
       },
       {
@@ -49,6 +98,7 @@ export const DEMO_RESULT: AnalysisResult = {
         confidence: "High",
         explanation: "5 of 8 purchase-confidence signals are visible: pricing, delivery, returns, ratings and customer support.",
         evidence: [{ statement: "Saved demo evidence includes product prices, fast shipping, 100-day returns, customer ratings and customer-service details.", pageLabel: "Purchase reassurance", url: DILLE_URL }],
+        checklist: DILLE_CHECKLISTS["purchase-confidence"],
         recommendation: "Show accepted payment methods and guarantees near the buying decision.",
       },
       {
@@ -59,6 +109,7 @@ export const DEMO_RESULT: AnalysisResult = {
         confidence: "High",
         explanation: "The representative route from the landing page to checkout takes four clicks.",
         evidence: [{ statement: "Saved demo path: Homepage → Product → Cart → Checkout (4 clicks).", pageLabel: "Dille & Kamille customer journey", url: DILLE_URL }],
+        checklist: DILLE_CHECKLISTS["customer-journey-path"],
         recommendation: "Keep the direct product route and cart access visible.",
       },
     ],
@@ -117,6 +168,7 @@ export const DEMO_RESULT: AnalysisResult = {
       score: 95,
       confidence: "High",
       evidence: [{ statement: "The landing page shows product collections, product cards and prices.", pageLabel: "Dille & Kamille landing page", url: DILLE_URL }],
+      checklist: DILLE_CHECKLISTS["offer-clarity"],
       nextAction: "Keep the assortment and category navigation visible together.",
     },
     {
@@ -128,6 +180,7 @@ export const DEMO_RESULT: AnalysisResult = {
       score: 65,
       confidence: "High",
       evidence: [{ statement: "Saved demo evidence includes product prices, fast shipping, 100-day returns, customer ratings and customer-service details.", pageLabel: "Purchase reassurance", url: DILLE_URL }],
+      checklist: DILLE_CHECKLISTS["purchase-confidence"],
       nextAction: "Show accepted payment methods and guarantees near the buying decision.",
     },
     {
@@ -139,6 +192,7 @@ export const DEMO_RESULT: AnalysisResult = {
       score: 95,
       confidence: "High",
       evidence: [{ statement: "Saved demo path: Homepage → Product → Cart → Checkout (4 clicks).", pageLabel: "Dille & Kamille customer journey", url: DILLE_URL }],
+      checklist: DILLE_CHECKLISTS["customer-journey-path"],
       nextAction: "Keep the direct product route and cart access visible.",
     },
   ],
@@ -150,13 +204,13 @@ export const DEMO_COMPETITOR_RESULT: AnalysisResult = {
   url: SOSTRENE_URL,
   companyName: "Søstrene Grene",
   primaryService: "Home, hobby and lifestyle products",
-  score: 91,
+  score: 93,
   scoreLabel: "Strong foundation",
   confidence: "High",
   analyzedAt: "2026-07-19T13:37:00.000Z",
   summary: "Saved competitor comparison across the same three findings.",
   overview: {
-    score: 91,
+    score: 93,
     status: "Strong",
     explanation: "The score summarizes the same three deterministic journey findings.",
     businessModel: "Ecommerce",
@@ -166,7 +220,7 @@ export const DEMO_COMPETITOR_RESULT: AnalysisResult = {
   llmEnhanced: false,
   readiness: {
     status: "scored",
-    score: 91,
+    score: 93,
     assessedWeight: 100,
     minimumWeight: 100,
     formula: "Σ(category score × category weight) ÷ 100",
@@ -179,6 +233,7 @@ export const DEMO_COMPETITOR_RESULT: AnalysisResult = {
         confidence: "High",
         explanation: "The landing page makes it clear that visitors can browse and buy home, hobby and lifestyle products.",
         evidence: [{ statement: "The landing page shows named collections, product cards and prices.", pageLabel: "Søstrene Grene landing page", url: SOSTRENE_URL }],
+        checklist: SOSTRENE_CHECKLISTS["offer-clarity"],
         recommendation: "Keep the product range and shopping intent immediately visible.",
       },
       {
@@ -189,16 +244,18 @@ export const DEMO_COMPETITOR_RESULT: AnalysisResult = {
         confidence: "High",
         explanation: "6 of 8 purchase-confidence signals are visible: pricing, delivery, returns, payment reassurance, certification and availability.",
         evidence: [{ statement: "Product pages show prices, 1–3 day delivery, free in-store returns, secure payment methods, stock availability and FSC certification.", pageLabel: "Søstrene Grene product reassurance", url: SOSTRENE_PRODUCT_URL }],
+        checklist: SOSTRENE_CHECKLISTS["purchase-confidence"],
         recommendation: "Add visible customer reviews and direct support details near products.",
       },
       {
         id: "customer-journey-path",
         label: "Customer Journey Path",
-        score: 95,
+        score: 100,
         weight: 35,
         confidence: "High",
         explanation: "From an empty cart, the landing-page-to-checkout route takes three clicks.",
         evidence: [{ statement: "Saved demo path: Landing-page Add to cart → Cart → Checkout (3 clicks).", pageLabel: "Søstrene Grene customer journey", url: SOSTRENE_URL }],
+        checklist: SOSTRENE_CHECKLISTS["customer-journey-path"],
         recommendation: "Keep landing-page Add to cart and cart access visible.",
       },
     ],
@@ -262,6 +319,7 @@ export const DEMO_COMPETITOR_RESULT: AnalysisResult = {
       score: 100,
       confidence: "High",
       evidence: [{ statement: "The landing page shows named collections, product cards and prices.", pageLabel: "Søstrene Grene landing page", url: SOSTRENE_URL }],
+      checklist: SOSTRENE_CHECKLISTS["offer-clarity"],
       nextAction: "Keep the product range and shopping intent immediately visible.",
     },
     {
@@ -273,6 +331,7 @@ export const DEMO_COMPETITOR_RESULT: AnalysisResult = {
       score: 75,
       confidence: "High",
       evidence: [{ statement: "Product pages show prices, 1–3 day delivery, free in-store returns, secure payment methods, stock availability and FSC certification.", pageLabel: "Søstrene Grene product reassurance", url: SOSTRENE_PRODUCT_URL }],
+      checklist: SOSTRENE_CHECKLISTS["purchase-confidence"],
       nextAction: "Add visible customer reviews and direct support details near products.",
     },
     {
@@ -281,9 +340,10 @@ export const DEMO_COMPETITOR_RESULT: AnalysisResult = {
       title: "Customer Journey Path",
       summary: "From an empty cart, the landing-page-to-checkout route takes three clicks.",
       severity: "Low",
-      score: 95,
+      score: 100,
       confidence: "High",
       evidence: [{ statement: "Saved demo path: Landing-page Add to cart → Cart → Checkout (3 clicks).", pageLabel: "Søstrene Grene customer journey", url: SOSTRENE_URL }],
+      checklist: SOSTRENE_CHECKLISTS["customer-journey-path"],
       nextAction: "Keep landing-page Add to cart and cart access visible.",
     },
   ],

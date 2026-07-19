@@ -50,6 +50,12 @@ export type Evidence = {
   url: string;
 };
 
+export type FindingCriterion = {
+  label: string;
+  status: "met" | "partial" | "missing";
+  detail: string;
+};
+
 export type Gap = {
   id: GapId;
   rank: number;
@@ -60,6 +66,7 @@ export type Gap = {
   score: number | null;
   confidence: Confidence;
   evidence: Evidence[];
+  checklist: FindingCriterion[];
   nextAction: string;
 };
 
@@ -71,6 +78,7 @@ export type ReadinessCategory = {
   confidence: Confidence;
   explanation: string;
   evidence: Evidence[];
+  checklist: FindingCriterion[];
   recommendation?: string;
 };
 

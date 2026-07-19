@@ -8,7 +8,7 @@ A small MVP that analyzes one public website and returns three acquisition findi
 2. One bounded Firecrawl job reads up to eight pages on that domain.
 3. Deterministic extraction builds evidence for the landing-page offer, purchase confidence and customer journey.
 4. OpenRouter optionally rewrites the finished findings and creates a concise improvement report without changing scores or evidence.
-5. The dashboard shows the overview, three findings, improvement report and crawl details.
+5. The dashboard shows the overview, three findings with evidence-backed completion checklists, an improvement report and crawl details.
 6. After the main report is complete, the user can optionally enter a competitor URL. The same analysis endpoint scans it, compares the deterministic results and adds a competitor section to the improvement report.
 
 ## Findings
@@ -18,6 +18,8 @@ A small MVP that analyzes one public website and returns three acquisition findi
 - **Customer Journey Path** — estimated clicks from the landing page to checkout, starting with an empty cart. For non-ecommerce websites it estimates the path to the primary conversion interface.
 
 The analyzer reads public HTML, Markdown and links. It does not click buttons, add products, submit forms or complete checkout. Post-click cart and checkout states may therefore be inferred and are labelled in the evidence.
+
+Each priority finding includes a “Path to 100%” checklist. The checklist exposes the deterministic criteria used by that category and marks each criterion as met, partial or missing. Report limitations are available from the Report scope tooltip.
 
 Competitor analysis is optional and never delays or changes the original report. It uses the same bounded analysis mechanism as the company scan, and its session-only result is not stored in a database. The saved demo comparison uses fixture data and performs no live crawl.
 
