@@ -372,19 +372,18 @@ function journeyCategory(homepage: PageFacts, journey: JourneyAnalysis) {
   const hasAction = ecommerce
     ? stages.some((stage) => Boolean(stage.ctaText && ADD_TO_CART.test(stage.ctaText)))
     : complete && stages.some((stage) => Boolean(stage.ctaText) || stage.nextStepVisible);
-  const cartStage = stages.find((stage) => stage.pageType === "Cart");
-  const checkoutStage = stages.find((stage) => stage.pageType === "Checkout");
-  const destinationPoints = ecommerce
-    ? (cartStage?.nextStepVisible ? 10 : 0) + (checkoutStage?.nextStepVisible ? 10 : 0)
+  const addStage = ecommerce ? stages.find((stage) => Boolean(stage.ctaText && ADD_TO_CART.test(stage.ctaText))) : null;
+  const accessibilityPoints = ecommerce
+    ? addStage?.pageType === "Homepage" ? 20 : addStage?.pageType === "Category" ? 15 : addStage?.pageType === "Product" ? 10 : 0
     : journey.primary.destinationUrl ? 20 : 0;
   const idealClicks = ecommerce ? 3 : 1;
   const efficiencyPoints = !complete || steps === null ? 0 : steps <= idealClicks ? 20 : steps === idealClicks + 1 ? 15 : steps === idealClicks + 2 ? 10 : 5;
-  const score = (verifiedDiscovery ? 20 : 0) + (offerReached ? 20 : 0) + (hasAction ? 20 : 0) + destinationPoints + efficiencyPoints;
+  const score = (verifiedDiscovery ? 20 : 0) + (offerReached ? 20 : 0) + (hasAction ? 20 : 0) + accessibilityPoints + efficiencyPoints;
   return category("customer-journey-path", "Customer Journey Path", score, journey.primary.confidence, complete ? `From an empty cart, the estimated landing-page-to-${ecommerce ? "checkout" : "conversion"} path takes ${steps} click${steps === 1 ? "" : "s"}.` : "Incomplete journey: product discovery or the primary conversion action could not be verified.", [{ statement: complete ? `Estimated path: ${journey.primary.stages.map((stage) => stage.pageType).join(" → ")} (${steps} clicks).` : journey.primary.limitations[0], pageLabel: complete ? "Customer journey" : "Incomplete journey", url: homepage.url }], complete ? "Keep the shortest route to checkout visible." : ecommerce ? "Link product discovery clearly to a product with Add to cart." : "Expose one complete route to the primary conversion interface.", [
     { label: "Discovery starts from the landing page (20%)", status: verifiedDiscovery ? "met" : "missing", detail: verifiedDiscovery ? "A first-party discovery action was detected." : "No usable discovery action was detected from the landing page." },
     { label: `A real ${ecommerce ? "product or purchasable listing" : "conversion destination"} is reached (20%)`, status: offerReached ? "met" : "missing", detail: offerReached ? "Representative commercial content is present in the route." : "No representative commercial destination was verified." },
     { label: `The primary ${ecommerce ? "Add to cart" : "conversion"} action is detected (20%)`, status: hasAction ? "met" : "missing", detail: hasAction ? "The required conversion action was captured." : "The required conversion action was not captured." },
-    { label: `The ${ecommerce ? "cart and checkout are verified" : "final destination is verified"} (20%)`, status: destinationPoints === 20 ? "met" : destinationPoints > 0 ? "partial" : "missing", detail: ecommerce ? `${cartStage?.nextStepVisible ? "Cart verified" : "Cart inferred"}; ${checkoutStage?.nextStepVisible ? "checkout verified" : "checkout inferred"}.` : journey.primary.destinationUrl ? "A conversion destination was identified." : "The destination could not be identified." },
+    { label: `${ecommerce ? "Add-to-cart accessibility" : "Conversion accessibility"} (20%)`, status: accessibilityPoints === 20 ? "met" : accessibilityPoints > 0 ? "partial" : "missing", detail: ecommerce ? addStage ? `Add to cart is available on the ${addStage.pageType.toLowerCase()}, worth ${accessibilityPoints} of 20 points.` : "No captured Add to cart action was found." : journey.primary.destinationUrl ? "The conversion is accessible from the landing-page route." : "The conversion destination could not be identified." },
     { label: `${idealClicks} click${idealClicks === 1 ? "" : "s"} or fewer to conversion (20%)`, status: efficiencyPoints === 20 ? "met" : efficiencyPoints > 0 ? "partial" : "missing", detail: steps === null ? "Click count is unavailable." : `${steps} clicks were estimated, worth ${efficiencyPoints} of 20 points.` },
   ]);
 }
