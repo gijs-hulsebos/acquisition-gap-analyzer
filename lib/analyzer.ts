@@ -26,11 +26,9 @@ type PageFacts = CrawlPage & {
   h1: string;
 };
 
-const WEIGHTS = { "offer-clarity": 35, "cta-clarity": 30, "customer-journey-path": 35 } as const;
+const WEIGHTS = { "offer-clarity": 35, "purchase-confidence": 30, "customer-journey-path": 35 } as const;
 const ADD_TO_CART = /\b(add to (?:cart|bag|basket)|in (?:de )?(?:winkelmand(?:je)?|winkelwagen(?:tje)?|mandje)|voeg(?:en)? toe aan (?:de )?(?:winkelmand(?:je)?|winkelwagen(?:tje)?|mandje)|toevoegen aan (?:de )?(?:winkelmand(?:je)?|winkelwagen(?:tje)?|mandje)|bestel nu|buy now)\b/i;
-const DIRECT_CTA = /\b(buy now|shop now|order now|bestel nu|koop nu|boek nu|book now|reserveer nu|request (?:a )?quote|offerte aanvragen|vraag (?:een )?offerte aan|start now|get started|begin nu)\b/i;
 const COMMERCIAL_ACTION = /\b(start|aanvragen|plan|boek|demo|registreer|inschrijven|bestel|koop|subscribe|sign up|get started|book|schedule|request|apply)\b/i;
-const GENERIC_ACTION = /\b(contact|lees meer|meer informatie|ontdek|bekijk|learn more|read more|discover)\b/i;
 const STOP_WORDS = new Set(["aan", "als", "bij", "de", "een", "en", "for", "het", "in", "met", "of", "onze", "the", "to", "van", "voor", "we", "wij", "your", "uw", "jouw", "op", "is", "zijn", "welkom", "home", "homepage"]);
 
 function decodeEntities(value: string) {
@@ -311,32 +309,33 @@ function buildGeneralJourney(pages: PageFacts[], homepage: PageFacts, primaryOff
   return { businessModels: publicBusinessModels(model, pages.map((page) => page.bodyText).join(" ")), primaryOffer, primaryConversionType: conversionType, primary: { status: route ? "complete" : "incomplete", name: route ? "Primary conversion journey" : "Incomplete journey", conversionType, startUrl: homepage.url, destinationUrl: route ? target?.url || null : null, clicksToInterface: route ? Math.max(0, route.length - 1) : null, additionalObservableActions: null, stages, shortestRoute: route || [], alternativeRoute: null, confidence: route ? confidenceFor(pages.length, route.length) : "Low", limitations: route ? ["No form, booking or account action was submitted."] : ["No complete route to a verified conversion interface was found."] }, secondary: [] };
 }
 
-function ctaCategory(homepage: PageFacts, pages: PageFacts[], model: CommercialModel) {
-  if (model === "ecommerce" || model === "marketplace") {
-    const explicit = pages.flatMap((page) => page.clickables.map((item) => ({ page, item }))).filter(({ item }) => ADD_TO_CART.test(item.text) || DIRECT_CTA.test(item.text));
-    const homepageExplicit = explicit.find(({ page }) => page.normalizedUrl === homepage.normalizedUrl);
-    const generic = homepage.clickables.filter((item) => GENERIC_ACTION.test(item.text) || /\b(shop|winkel|assortiment|collectie|producten)\b/i.test(item.text));
-    const primary = homepageExplicit || explicit[0];
-    const score = homepageExplicit ? 100 : explicit.length ? 85 : generic.length ? 45 : 10;
-    const evidence: Evidence[] = primary
-      ? [{ statement: `Direct conversion CTA detected: “${primary.item.text}”.`, pageLabel: primary.page.normalizedUrl === homepage.normalizedUrl ? "Landing-page CTA" : "Conversion CTA", url: primary.page.url }]
-      : generic.length
-        ? [{ statement: `Only discovery-style CTA wording was detected: ${generic.slice(0, 3).map((item) => `“${item.text}”`).join(", ")}.`, pageLabel: "Landing-page CTA", url: homepage.url }]
-        : [{ statement: "No specific purchase or conversion CTA was detected in the crawled pages.", pageLabel: "CTA wording", url: homepage.url }];
-    const explanation = homepageExplicit
-      ? `The landing page uses a strong direct conversion CTA: “${homepageExplicit.item.text}”.`
-      : primary
-        ? `A strong conversion CTA exists, but it appears later in the website: “${primary.item.text}”.`
-        : generic.length
-          ? "The landing page uses discovery wording rather than a direct conversion CTA."
-          : "No clear direct conversion CTA was detected.";
-    const recommendation = homepageExplicit ? "Keep the direct CTA prominent and specific." : primary ? "Repeat the strongest conversion CTA earlier on the landing page." : "Use a specific CTA such as Buy now, Add to cart or Book now.";
-    return category("cta-clarity", "CTA Clarity", score, confidenceFor(pages.length, evidence.length), explanation, evidence, recommendation);
-  }
-  const commercial = pages.flatMap((page) => page.clickables.map((item) => ({ page, item }))).filter(({ item }) => COMMERCIAL_ACTION.test(item.text));
-  const generic = homepage.clickables.filter((item) => GENERIC_ACTION.test(item.text));
-  const score = commercial.length >= 2 ? 90 : commercial.length === 1 ? 70 : generic.length ? 35 : 10;
-  return category("cta-clarity", "CTA Clarity", score, confidenceFor(pages.length, commercial.length + generic.length), commercial.length ? "The representative journey contains an explicit commercial action." : "The representative journey does not expose a specific commercial action.", [{ statement: commercial.length ? `Explicit actions: ${commercial.slice(0, 4).map(({ item }) => `“${item.text}”`).join(", ")}.` : generic.length ? `Only generic actions: ${generic.map((item) => `“${item.text}”`).join(", ")}.` : "No explicit commercial action was detected.", pageLabel: "Representative journey", url: homepage.url }], commercial.length ? "Keep one primary action consistent across the journey." : "Use one specific action that describes the next customer step.");
+function purchaseConfidenceCategory(homepage: PageFacts, pages: PageFacts[]) {
+  const signals = [
+    { label: "clear pricing", weight: 10, pattern: /(?:€|eur\s*)\s*\d{1,5}(?:[.,]\d{2})?|\b\d{1,4}[,.]\d{2}\b/i, recommendation: "Show clear pricing before visitors commit." },
+    { label: "delivery information", weight: 15, pattern: /\b(delivery|shipping|dispatch|bezorg(?:ing|d)?|verzend(?:ing|kosten)?|levering|afhalen|ophalen)\b/i, recommendation: "State delivery costs and timing near the buying decision." },
+    { label: "returns or refunds", weight: 15, pattern: /\b(returns?|return policy|refunds?|retour(?:neren|beleid)?|bedenktijd|terugbetaling)\b/i, recommendation: "Make the return or refund policy easy to find." },
+    { label: "reviews or ratings", weight: 15, pattern: /\b(reviews?|ratings?|beoordeling(?:en)?|klantbeoordelingen?|sterren|stars?|testimonials?|klantverhalen)\b|\b\d(?:[.,]\d)?\s*(?:van|out of)\s*5\b/i, recommendation: "Add visible customer reviews or ratings." },
+    { label: "payment reassurance", weight: 15, pattern: /\b(payment methods?|secure payment|veilig betalen|betaalmethoden?|iDEAL|visa|mastercard|paypal|klarna|apple pay)\b/i, recommendation: "Show accepted and secure payment methods before checkout." },
+    { label: "customer support", weight: 10, pattern: /\b(customer service|customer support|klantenservice|helpdesk|contact opnemen|telefoon|phone|e-?mail)\b/i, recommendation: "Provide clear customer-service contact details." },
+    { label: "guarantees or certification", weight: 10, pattern: /\b(guarantee|warranty|garantie|keurmerk|certificat(?:e|ion)|gecertificeerd|certified|thuiswinkel|ssl|secure checkout)\b/i, recommendation: "Add a relevant guarantee, certification or security signal." },
+    { label: "availability", weight: 10, pattern: /\b(in stock|out of stock|availability|op voorraad|voorraad|beschikbaar|uitverkocht)\b/i, recommendation: "Make product or service availability explicit." },
+  ];
+  const detected = signals.flatMap((signal) => {
+    const page = pages.find((candidate) => signal.pattern.test(candidate.bodyText));
+    return page ? [{ ...signal, page }] : [];
+  });
+  const score = detected.reduce((total, signal) => total + signal.weight, 0);
+  const evidence: Evidence[] = detected.slice(0, 4).map((signal) => ({
+    statement: `Visible ${signal.label} was detected on “${signal.page.title}”.`,
+    pageLabel: signal.label.replace(/\b\w/g, (letter) => letter.toUpperCase()),
+    url: signal.page.url,
+  }));
+  if (!evidence.length) evidence.push({ statement: "No purchase-reassurance signals were detected in the representative pages.", pageLabel: "Purchase confidence", url: homepage.url });
+  const missing = signals.filter((signal) => !detected.some((item) => item.label === signal.label));
+  const explanation = detected.length
+    ? `${detected.length} of ${signals.length} purchase-confidence signals were found: ${detected.map((signal) => signal.label).join(", ")}.`
+    : "The representative pages contain little visible reassurance for a purchase decision.";
+  return category("purchase-confidence", "Purchase Confidence", score, confidenceFor(pages.length, detected.length), explanation, evidence, missing[0]?.recommendation || "Keep purchase reassurance visible throughout the journey.");
 }
 
 function journeyCategory(homepage: PageFacts, journey: JourneyAnalysis) {
@@ -367,7 +366,7 @@ export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, pro
   const primaryOffer = inferPrimaryOffer(homepage, pages, model);
   const market = inferMarket(pages, model);
   const journey = model === "ecommerce" || model === "marketplace" ? buildEcommerceJourney(pages, homepage, primaryOffer) : buildGeneralJourney(pages, homepage, primaryOffer, model);
-  const rawCategories = [offerCategory(homepage, pages, primaryOffer, market.targetCustomer), ctaCategory(homepage, pages, model), journeyCategory(homepage, journey)];
+  const rawCategories = [offerCategory(homepage, pages, primaryOffer, market.targetCustomer), purchaseConfidenceCategory(homepage, pages), journeyCategory(homepage, journey)];
   const usefulPages = pages.filter((page) => page.statusCode < 400 && page.bodyText.length >= 80).length;
   const sufficient = usefulPages >= 2;
   const insufficient = `Insufficient data: only ${usefulPages} useful page${usefulPages === 1 ? " was" : "s were"} available; at least 2 are required.`;

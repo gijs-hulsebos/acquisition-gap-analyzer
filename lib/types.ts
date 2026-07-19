@@ -40,7 +40,7 @@ export type JourneyAnalysis = {
   secondary: CustomerJourney[];
 };
 
-export type GapId = "offer-clarity" | "cta-clarity" | "customer-journey-path";
+export type GapId = "offer-clarity" | "purchase-confidence" | "customer-journey-path";
 
 export type ReadinessCategoryId = GapId;
 
@@ -115,7 +115,7 @@ export type AnalysisResult = {
   summary: string;
   /** Stable, deterministic overview returned by the JSON API. */
   overview: ReportOverview;
-  /** Always contains Offer Clarity, CTA Clarity and Customer Journey Path in that order. */
+  /** Always contains Offer Clarity, Purchase Confidence and Customer Journey Path in that order. */
   gaps: Gap[];
   stats: CrawlStats;
   journey: JourneyAnalysis;

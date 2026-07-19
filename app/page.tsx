@@ -39,7 +39,7 @@ const LOADING_STEPS = [
 
 const GAP_ICONS = {
   "offer-clarity": MessageSquareText,
-  "cta-clarity": MousePointerClick,
+  "purchase-confidence": ShieldCheck,
   "customer-journey-path": Link2,
 };
 
@@ -657,7 +657,7 @@ function TechnicalDetails({ result }: { result: AnalysisResult }) {
           <div><CircleAlert size={15} /><strong id="report-scope-heading">What this scan does not verify</strong></div>
           <ul>
             <li>Forms are detected, not submitted.</li>
-            <li>CTA text is read from HTML; visual prominence is not measured.</li>
+            <li>Purchase-confidence signals are detected from HTML; visual prominence is not measured.</li>
             <li>Up to eight representative pages are analyzed, so routes through unselected pages may not be visible.</li>
             <li>Purchases, account creation, bookings and forms are never completed.</li>
           </ul>

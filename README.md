@@ -6,20 +6,20 @@ A small MVP that analyzes one public website and returns three acquisition findi
 
 1. The user submits a URL.
 2. One bounded Firecrawl job reads up to eight pages on that domain.
-3. Deterministic extraction builds evidence for the landing-page offer, CTAs and customer journey.
+3. Deterministic extraction builds evidence for the landing-page offer, purchase confidence and customer journey.
 4. OpenRouter optionally rewrites the finished findings in concise language without changing scores or evidence.
 5. The dashboard shows the overview, three findings and crawl details.
-6. After the main report is complete, the user can optionally scan one validated direct competitor. The start request returns immediately after creating one three-page Firecrawl job; the dashboard then polls a lightweight status endpoint until the comparison is ready.
+6. After the main report is complete, the user can optionally enter a competitor URL. The same analysis endpoint scans it and the dashboard compares the two results.
 
 ## Findings
 
 - **Offer Clarity** — whether the landing page quickly communicates what the website offers.
-- **CTA Clarity** — whether the commercial calls to action are specific and consistent.
+- **Purchase Confidence** — visible pricing, delivery, returns, ratings, payment reassurance, support, guarantees and availability.
 - **Customer Journey Path** — estimated clicks from the landing page to checkout, starting with an empty cart. For non-ecommerce websites it estimates the path to the primary conversion interface.
 
 The analyzer reads public HTML, Markdown and links. It does not click buttons, add products, submit forms or complete checkout. Post-click cart and checkout states may therefore be inferred and are labelled in the evidence.
 
-Competitor analysis is optional and never delays or changes the original report. It uses one search and one crawl job, and its session-only result is not stored in a database.
+Competitor analysis is optional and never delays or changes the original report. It uses the same bounded analysis mechanism as the company scan, and its session-only result is not stored in a database. The saved demo comparison uses fixture data and performs no live crawl.
 
 ## Environment
 

@@ -54,6 +54,8 @@ describe("simple acquisition report", () => {
   it("ships the saved Dille & Kamille and Søstrene Grene demo comparison", () => {
     expect(DEMO_RESULT.companyName).toBe("Dille & Kamille");
     expect(DEMO_COMPETITOR_RESULT.companyName).toBe("Søstrene Grene");
+    expect(DEMO_COMPETITOR_RESULT.score).toBe(91);
+    expect(DEMO_COMPETITOR_RESULT.gaps.find((gap) => gap.id === "purchase-confidence")?.score).toBe(75);
     expect(DEMO_COMPETITOR_RESULT.overview.estimatedClicks).toBe(3);
     expect(DEMO_COMPETITOR_RESULT.gaps.map((gap) => gap.id)).toEqual(DEMO_RESULT.gaps.map((gap) => gap.id));
   });
@@ -62,7 +64,7 @@ describe("simple acquisition report", () => {
     const result = analyzeCrawl(ecommercePages(), "https://shop.nl/", 100);
     expect(result.gaps.map((gap) => gap.id)).toEqual([
       "offer-clarity",
-      "cta-clarity",
+      "purchase-confidence",
       "customer-journey-path",
     ]);
   });
@@ -75,14 +77,21 @@ describe("simple acquisition report", () => {
 
   it("detects Dutch Add to cart wording", () => {
     const result = analyzeCrawl(ecommercePages("Voeg toe aan winkelwagen"), "https://shop.nl/", 100);
-    expect(result.gaps[1].evidence.some((item) => item.statement.includes("Voeg toe aan winkelwagen"))).toBe(true);
+    expect(result.journey.primary.stages.some((stage) => stage.ctaText === "Voeg toe aan winkelwagen")).toBe(true);
   });
 
-  it("scores CTA wording independently from the journey path", () => {
-    const direct = analyzeCrawl(ecommercePages("Koop nu"), "https://shop.nl/", 100);
-    const generic = analyzeCrawl(ecommercePages("Meer informatie"), "https://shop.nl/", 100);
-    expect(direct.gaps[1].score).toBeGreaterThan(generic.gaps[1].score || 0);
-    expect(direct.gaps[1].summary).toContain("Koop nu");
+  it("scores purchase reassurance independently from the journey path", () => {
+    const basicPages = ecommercePages();
+    const trustedPages = basicPages.map((item, index) => index === 0 ? {
+      ...item,
+      html: `${item.html}<p>€ 12,95. Snelle verzending. 30 dagen retour. Beoordeling 4,8 van 5. Veilig betalen met iDEAL. Klantenservice per e-mail. Twee jaar garantie. Op voorraad.</p>`,
+    } : item);
+    const basic = analyzeCrawl(basicPages, "https://shop.nl/", 100);
+    const trusted = analyzeCrawl(trustedPages, "https://shop.nl/", 100);
+
+    expect(trusted.gaps[1].id).toBe("purchase-confidence");
+    expect(trusted.gaps[1].score).toBeGreaterThan(basic.gaps[1].score || 0);
+    expect(trusted.overview.estimatedClicks).toBe(basic.overview.estimatedClicks);
   });
 
   it("counts an empty-cart category journey through checkout as five clicks", () => {

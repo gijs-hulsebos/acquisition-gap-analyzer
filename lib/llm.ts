@@ -59,7 +59,7 @@ export async function enhanceFindings(
                         type: "string",
                         enum: [
                           "offer-clarity",
-                          "cta-clarity",
+                          "purchase-confidence",
                           "customer-journey-path",
                         ],
                       },
