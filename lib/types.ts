@@ -137,6 +137,18 @@ export type PublicCompetitor = {
   findings: Gap[];
 };
 
+export type CompetitorCandidate = {
+  name: string;
+  url: string;
+  reason: string;
+  evidenceUrls: string[];
+};
+
+export type CompetitorCandidatesResult = {
+  candidates: CompetitorCandidate[];
+  token: string;
+};
+
 export type CompetitorScanResult = {
   sourceUrl: string;
   searchedAt: string;

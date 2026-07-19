@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { analyzeCrawl } from "../lib/analyzer";
 import { filterCompetitorCandidates, selectDirectCompetitor } from "../lib/competitor-scan";
-import { signCompetitorJob, verifyCompetitorJob } from "../lib/competitor-token";
+import { signCompetitorCandidates, signCompetitorJob, verifyCompetitorJob, verifyCompetitorSelection } from "../lib/competitor-token";
 import type { CrawlPage } from "../lib/types";
 
 function page(url: string, title: string, html: string, links: string[] = []): CrawlPage {
@@ -122,5 +122,16 @@ describe("optional competitor scan", () => {
     const token = signCompetitorJob(state, "test-secret");
     expect(verifyCompetitorJob(token, "test-secret")).toEqual(state);
     expect(() => verifyCompetitorJob(`${token}x`, "test-secret")).toThrow("Invalid competitor scan token");
+  });
+
+  it("only accepts a user selection from the signed candidate list", () => {
+    const token = signCompetitorCandidates({
+      version: 1,
+      issuedAt: Date.now(),
+      sourceUrl: "https://shop.nl",
+      candidates: [{ name: "Kitchen Store", url: "https://kitchen-store.nl", reason: "Same Dutch kitchenware market.", evidenceUrls: ["https://source.nl"] }],
+    }, "test-secret");
+    expect(verifyCompetitorSelection(token, "https://kitchen-store.nl/products", "test-secret").candidate.name).toBe("Kitchen Store");
+    expect(() => verifyCompetitorSelection(token, "https://unrelated.nl", "test-secret")).toThrow("Select one of the verified competitor suggestions");
   });
 });
