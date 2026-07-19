@@ -8,7 +8,6 @@ import {
   Check,
   ChevronRight,
   CircleAlert,
-  Clock3,
   ExternalLink,
   FileSearch,
   Globe2,
@@ -85,16 +84,6 @@ function shortHost(value: string) {
 function formatDuration(milliseconds: number) {
   if (milliseconds < 1000) return `${milliseconds} ms`;
   return `${(milliseconds / 1000).toFixed(1)} sec`;
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-NL", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
 }
 
 function Landing({
@@ -495,30 +484,66 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
 function comparisonValue(report: AnalysisResult, finding: Gap) {
   if (finding.score === null) return "Insufficient data";
   if (finding.id === "customer-journey-path" && report.overview.estimatedClicks !== null) {
-    return `${report.overview.estimatedClicks} clicks · ${finding.score}%`;
+    return `${report.overview.estimatedClicks} click${report.overview.estimatedClicks === 1 ? "" : "s"}`;
   }
   return `${finding.score}%`;
+}
+
+function ComparisonScore({ score, label }: { score: number | null; label: string }) {
+  const value = score ?? 0;
+  return (
+    <span
+      className={`comparison-score ${score === null ? "comparison-score-empty" : ""}`}
+      style={{ "--comparison-score": `${value * 3.6}deg` } as CSSProperties}
+      aria-label={score === null ? `${label}: insufficient data` : `${label}: ${score}%`}
+    >
+      <strong>{score === null ? "—" : `${score}%`}</strong>
+    </span>
+  );
+}
+
+function ComparisonFinding({ report, finding }: { report: AnalysisResult; finding: Gap }) {
+  return (
+    <div className="comparison-finding-value">
+      <ComparisonScore score={finding.score} label={`${report.companyName} ${finding.title}`} />
+      <div>
+        <strong>{comparisonValue(report, finding)}</strong>
+        <p>{finding.summary}</p>
+      </div>
+    </div>
+  );
 }
 
 function CompetitorComparison({ company, competitor }: { company: AnalysisResult; competitor: AnalysisResult }) {
   return (
     <article className="competitor-comparison" aria-label={`${company.companyName} compared with ${competitor.companyName}`}>
-      <div className="comparison-grid comparison-head">
-        <span>Finding</span>
-        <div><small>Analyzed company</small><strong>{company.companyName}</strong><b>{company.score === null ? "—" : `${company.score}% overall`}</b></div>
-        <div><small>Competitor · {competitor.pages.length} pages</small><a href={competitor.url} target="_blank" rel="noreferrer">{competitor.companyName}<ExternalLink size={11} /></a><b>{competitor.score === null ? "—" : `${competitor.score}% overall`}</b></div>
-      </div>
+      <header className="comparison-sites">
+        <div className="comparison-site">
+          <ComparisonScore score={company.score} label={`${company.companyName} overall`} />
+          <div><small>Your company</small><strong>{company.companyName}</strong><span>{shortHost(company.url)}</span></div>
+        </div>
+        <span className="comparison-versus">VS</span>
+        <div className="comparison-site comparison-site-competitor">
+          <ComparisonScore score={competitor.score} label={`${competitor.companyName} overall`} />
+          <div><small>Competitor · {competitor.pages.length} pages</small><a href={competitor.url} target="_blank" rel="noreferrer">{competitor.companyName}<ExternalLink size={12} /></a><span>{shortHost(competitor.url)}</span></div>
+        </div>
+      </header>
+      <div className="comparison-findings">
       {company.gaps.map((finding) => {
         const competitorFinding = competitor.gaps.find((item) => item.id === finding.id);
         if (!competitorFinding) return null;
+        const Icon = GAP_ICONS[finding.id];
         return (
-          <div className="comparison-grid comparison-row" key={finding.id}>
-            <strong>{finding.title}</strong>
-            <div><b>{comparisonValue(company, finding)}</b><p>{finding.summary}</p></div>
-            <div><b>{comparisonValue(competitor, competitorFinding)}</b><p>{competitorFinding.summary}</p></div>
-          </div>
+          <section className="comparison-finding" key={finding.id}>
+            <header><span className={`gap-icon gap-icon-${finding.id}`}><Icon size={16} /></span><strong>{finding.title}</strong></header>
+            <div className="comparison-finding-columns">
+              <ComparisonFinding report={company} finding={finding} />
+              <ComparisonFinding report={competitor} finding={competitorFinding} />
+            </div>
+          </section>
         );
       })}
+      </div>
     </article>
   );
 }
@@ -663,10 +688,7 @@ function ResultsView({ result, onReset }: { result: AnalysisResult; onReset: () 
               <h1>{result.companyName}</h1>
               <p><Globe2 size={14} /> {shortHost(result.url)} <span /> {result.primaryService}</p>
             </div>
-            <div className="analysis-meta">
-              <span><Clock3 size={14} /> {formatDate(result.analyzedAt)}</span>
-              {result.mode === "live" && <span className="mode-badge">Live analysis</span>}
-            </div>
+            {result.mode === "live" && <div className="analysis-meta"><span className="mode-badge">Live analysis</span></div>}
           </section>
 
           <section className="overview-workspace" aria-label="Dashboard overview">
