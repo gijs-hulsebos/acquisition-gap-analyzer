@@ -28,7 +28,7 @@ function ecommercePages(addLabel = "In winkelmandje") {
     page("https://shop.nl/product/pan", "Gietijzeren pan", `
       <h1>Gietijzeren pan</h1><p>Een duurzame pan voor thuis.</p>
       <p>Geschikt voor dagelijks koken en gemaakt om jarenlang met plezier te blijven gebruiken.</p>
-      <button>${addLabel}</button>
+      <button>${addLabel}</button><a href="/cart">Winkelmandje</a>
     `),
     page("https://shop.nl/cart", "Winkelmandje", `<h1>Winkelmandje</h1><a href="/checkout">Afrekenen</a>`),
     page("https://shop.nl/checkout", "Afrekenen", `<h1>Afrekenen</h1><p>Vul je gegevens in om te bestellen.</p>`),
@@ -75,7 +75,8 @@ describe("simple acquisition report", () => {
         <h1>Woonaccessoires en producten voor thuis</h1>
         <p>Bekijk onze collectie woonartikelen voor ieder interieur.</p>
         <span>€ 1,69</span><span>€ 3,22</span>
-        <div class="product-card">Lepel · Add to Cart: Lepel</div>
+        <div class="product-card">Lepel</div>
+        <button>Add to Cart: Lepel</button><a href="/cart">Cart</a>
       `),
       page("https://direct-shop.nl/cart", "Cart", `<h1>Cart</h1><p>Review the selected product and order total before continuing.</p><a href="/checkout">Checkout</a>`),
       page("https://direct-shop.nl/checkout", "Checkout", `<h1>Checkout</h1><p>Complete your order by entering the delivery and payment information requested below.</p>`),
@@ -87,11 +88,22 @@ describe("simple acquisition report", () => {
     expect(result.journey.primary.stages[0].pageType).toBe("Homepage");
   });
 
-  it("estimates the journey when a dynamic Add to cart label is not captured", () => {
+  it("does not assign a click count when Add to cart is not evidenced", () => {
     const result = analyzeCrawl(ecommercePages("Kies product"), "https://shop.nl/", 100);
-    expect(result.journey.primary.status).toBe("complete");
-    expect(result.overview.estimatedClicks).toBe(5);
-    expect(result.journey.primary.limitations[0]).toContain("not clicked");
+    expect(result.journey.primary.status).toBe("incomplete");
+    expect(result.overview.estimatedClicks).toBeNull();
+    expect(result.journey.primary.limitations[0]).toContain("No click count is shown");
+  });
+
+  it("does not treat non-clickable Add to cart text as a three-click journey", () => {
+    const pages = [
+      page("https://text-only-shop.nl/", "Text Only Shop", `<h1>Products for home</h1><p>Add to cart appears in descriptive content but is not a button.</p><a href="/cart">Cart</a>`),
+      page("https://text-only-shop.nl/cart", "Cart", `<h1>Cart</h1><p>Review the items in your shopping cart before continuing.</p><a href="/checkout">Checkout</a>`),
+      page("https://text-only-shop.nl/checkout", "Checkout", `<h1>Checkout</h1><p>Enter delivery and payment details to finish the purchase.</p>`),
+    ];
+    const result = analyzeCrawl(pages, "https://text-only-shop.nl/", 100);
+    expect(result.overview.estimatedClicks).toBeNull();
+    expect(result.journey.primary.status).toBe("incomplete");
   });
 
   it("returns insufficient data when fewer than two useful pages are available", () => {
