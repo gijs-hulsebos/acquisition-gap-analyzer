@@ -225,46 +225,55 @@ function category(id: ReadinessCategory["id"], label: string, score: number | nu
 function offerCategory(homepage: PageFacts, pages: PageFacts[], primaryOffer: string, targetCustomer: string) {
   const model = classifyCommercialModel(pages);
   const homepageText = `${homepage.h1} ${homepage.description} ${homepage.bodyText.slice(0, 5000)}`;
+  const openingText = `${homepage.h1} ${homepage.description} ${homepage.bodyText.slice(0, 2500)}`;
   const linkedLabels = homepage.clickables.map((item) => item.text).filter((text) => text.length >= 3).slice(0, 30);
-  const searchVisible = hasSearchControl(homepage);
   const productSignals = productStructureCount(homepage);
   const prices = priceCount(homepage);
-  const browseAction = homepage.clickables.find((item) => /\b(assortiment|collectie|categorie|producten|shop|winkel|bekijk alles|ontdek)\b/i.test(item.text));
   const offerTokens = meaningfulTokens(`${primaryOffer} ${linkedLabels.join(" ")}`).slice(0, 10);
   const headingSpecific = homepage.h1.length >= 8 && !/^(home|homepage|welkom|welcome|dille\s*&\s*kamille)$/i.test(homepage.h1) && offerTokens.some((token) => homepage.h1.toLowerCase().includes(token));
+  const audience = firstSnippet(openingText, /\b(voor (?:bedrijven|ondernemers|organisaties|professionals|particulieren|consumenten|woningeigenaren|gezinnen|kinderen|ouders|teams)|b2b|b2c|zakelijk|thuis)\b/i);
+  const benefit = firstSnippet(openingText, /\b(gratis|free|snelle?|fast|duurzaam|sustainable|kwaliteit|quality|handgemaakt|handmade|exclusief|exclusive|bespaar|save|gemakkelijk|easy|veilig|secure|garantie|guarantee|bedenktijd|returns?|retour|persoonlijk|personal)\b/i);
+  const representativeLabels = pages
+    .filter((page) => page.normalizedUrl !== homepage.normalizedUrl && ["Category", "Product", "Service", "Pricing"].includes(pageType(page, homepage)))
+    .flatMap((page) => meaningfulTokens(`${page.h1} ${page.title}`))
+    .slice(0, 30);
+  const consistentTokens = Array.from(new Set(representativeLabels)).filter((token) => openingText.toLowerCase().includes(token));
+  const consistencyPoints = consistentTokens.length >= 3 ? 20 : consistentTokens.length >= 1 ? 10 : 0;
 
   if (model === "ecommerce" || model === "marketplace") {
     const assortmentVisible = productSignals >= 2 || prices >= 2 || linkedLabels.filter((label) => /\b(bekijk|shop|collectie|assortiment|categorie|product)\b/i.test(label)).length >= 2;
-    const shoppingIntent = Boolean(browseAction || searchVisible || productSignals >= 2);
-    const score = (headingSpecific ? 35 : assortmentVisible ? 30 : 10) + (assortmentVisible ? 35 : 0) + (shoppingIntent ? 30 : 0);
+    const offerPoints = headingSpecific ? 20 : assortmentVisible ? 10 : 0;
+    const audiencePoints = audience ? 20 : assortmentVisible ? 10 : 0;
+    const benefitPoints = benefit ? 20 : 0;
+    const assortmentPoints = assortmentVisible ? 20 : 0;
+    const score = offerPoints + audiencePoints + benefitPoints + assortmentPoints + consistencyPoints;
     const evidence: Evidence[] = [
       { statement: headingSpecific ? `The landing-page heading names the offer: “${homepage.h1}”.` : assortmentVisible ? `The landing page exposes an assortment through ${productSignals || prices} product/price signals and labelled category or product links.` : "The landing page does not expose enough product or category evidence to identify the assortment.", pageLabel: "Landing-page offer", url: homepage.url },
-      { statement: browseAction ? `The landing page uses the discovery action “${browseAction.text}”.` : searchVisible ? "A product-search control is visible on the landing page." : "No clear assortment, category or search action was detected on the landing page.", pageLabel: "Shopping intent", url: homepage.url },
+      { statement: benefit || "No concrete customer benefit was detected in the opening content.", pageLabel: "Customer benefit", url: homepage.url },
     ];
-    const explanation = assortmentVisible && shoppingIntent
-      ? "The landing page makes it clear that visitors can browse and buy products."
-      : assortmentVisible
-        ? "Products are visible, but the next shopping action is not explicit enough."
-        : "The landing page does not make the sellable assortment immediately clear.";
-    const recommendation = !assortmentVisible ? `Show representative categories or products for ${primaryOffer} on the landing page.` : !shoppingIntent ? "Add one explicit Browse products, Search or Shop action beside the assortment." : "Keep the assortment and shopping action visible together.";
+    const explanation = score >= 80 ? "The landing page communicates the offer with strong supporting context." : score >= 50 ? "The offer is visible, but important context is still implicit." : "The landing page does not establish the offer clearly enough for a new visitor.";
+    const recommendation = !headingSpecific ? `Name ${primaryOffer} directly in the main heading.` : !audience ? `State who the offer is for, rather than leaving ${targetCustomer} implicit.` : !benefit ? "Add one concrete reason to choose the company near the main offer." : !assortmentVisible ? `Show representative categories or products for ${primaryOffer} on the landing page.` : consistencyPoints < 20 ? "Align the main message with the visible product or category language." : "Keep the offer, audience and benefit consistently visible.";
     return category("offer-clarity", "Offer Clarity", score, confidenceFor(pages.length, evidence.length), explanation, evidence, recommendation, [
-      { label: "The offer is explicit in the main heading", status: headingSpecific ? "met" : assortmentVisible ? "partial" : "missing", detail: headingSpecific ? `Heading: “${homepage.h1}”` : assortmentVisible ? "The assortment is visible, but the heading is less specific." : "No explicit offer was found in the heading." },
-      { label: "Representative products or categories are visible", status: assortmentVisible ? "met" : "missing", detail: assortmentVisible ? "Product, price or category signals were detected." : "No representative assortment was detected." },
-      { label: "A clear browse, shop or search action is available", status: shoppingIntent ? "met" : "missing", detail: browseAction?.text || (searchVisible ? "Search control detected." : "No shopping action was detected.") },
+      { label: "What the company sells is explicit (20%)", status: headingSpecific ? "met" : assortmentVisible ? "partial" : "missing", detail: headingSpecific ? `Heading: “${homepage.h1}”` : assortmentVisible ? "The assortment implies the offer, but the heading does not state it." : "No explicit offer was found." },
+      { label: "The intended customer is clear (20%)", status: audience ? "met" : assortmentVisible ? "partial" : "missing", detail: audience || (assortmentVisible ? "A consumer shopping context is implied, but not stated." : "No intended customer was detected.") },
+      { label: "A concrete benefit is communicated (20%)", status: benefit ? "met" : "missing", detail: benefit || "No clear reason to choose the company was detected in the opening content." },
+      { label: "Representative products or categories are visible (20%)", status: assortmentVisible ? "met" : "missing", detail: assortmentVisible ? "Product, price or category signals were detected." : "No representative assortment was detected." },
+      { label: "The message matches the visible assortment (20%)", status: consistencyPoints === 20 ? "met" : consistencyPoints === 10 ? "partial" : "missing", detail: consistentTokens.length ? `${consistentTokens.length} offer term${consistentTokens.length === 1 ? "" : "s"} also appear in representative page labels.` : "No consistent offer language was detected across the selected pages." },
     ]);
   }
 
   const whatClear = headingSpecific || offerTokens.filter((token) => homepageText.toLowerCase().includes(token)).length >= 2;
-  const audience = firstSnippet(homepageText, /\b(voor (?:bedrijven|ondernemers|organisaties|professionals|particulieren|consumenten|woningeigenaren|gezinnen)|b2b|b2c|zakelijk|thuis)\b/i);
-  const commercial = homepage.clickables.find((item) => COMMERCIAL_ACTION.test(item.text));
-  const score = (whatClear ? 55 : 15) + (audience ? 20 : 0) + (commercial ? 25 : 0);
-  return category("offer-clarity", "Offer Clarity", score, confidenceFor(pages.length, [whatClear, audience, commercial].filter(Boolean).length), whatClear && commercial ? "The landing page explains the offer and exposes a concrete next step." : "The landing page does not make both the offer and conversion step immediately clear.", [
+  const representativeVisible = representativeLabels.length > 0 || linkedLabels.some((label) => /\b(service|diensten|oplossing|producten|pricing|tarieven)\b/i.test(label));
+  const score = (whatClear ? 20 : 0) + (audience ? 20 : 0) + (benefit ? 20 : 0) + (representativeVisible ? 20 : 0) + consistencyPoints;
+  return category("offer-clarity", "Offer Clarity", score, confidenceFor(pages.length, [whatClear, audience, benefit, representativeVisible, consistencyPoints].filter(Boolean).length), score >= 80 ? "The landing page communicates the offer with strong supporting context." : score >= 50 ? "The offer is visible, but important context is still implicit." : "The landing page does not establish the offer clearly enough for a new visitor.", [
     { statement: whatClear ? `Landing-page offer evidence: “${homepage.h1 || primaryOffer}”.` : "The landing-page heading and opening copy do not clearly name the offer.", pageLabel: "Landing-page offer", url: homepage.url },
-    { statement: commercial ? `Primary action: “${commercial.text}”.` : "No explicit commercial action was detected on the landing page.", pageLabel: "Conversion intent", url: homepage.url },
-  ], !whatClear ? `Name ${primaryOffer} directly in the landing-page heading.` : !commercial ? "Add one explicit action describing the next customer step." : `Keep the offer and action clear for ${targetCustomer}.`, [
-    { label: "The offer is immediately clear", status: whatClear ? "met" : "missing", detail: whatClear ? `Offer evidence: “${homepage.h1 || primaryOffer}”.` : "The opening copy does not clearly name the offer." },
-    { label: "The intended customer is identified", status: audience ? "met" : "missing", detail: audience || "No explicit audience statement was detected." },
-    { label: "A concrete commercial next step is visible", status: commercial ? "met" : "missing", detail: commercial?.text || "No commercial action was detected." },
+    { statement: benefit || "No concrete customer benefit was detected in the opening content.", pageLabel: "Customer benefit", url: homepage.url },
+  ], !whatClear ? `Name ${primaryOffer} directly in the landing-page heading.` : !audience ? `State who the offer is for, rather than leaving ${targetCustomer} implicit.` : !benefit ? "Add one concrete reason to choose the company near the main offer." : !representativeVisible ? "Show a representative service or product on the landing page." : consistencyPoints < 20 ? "Use consistent offer language across the landing and representative pages." : "Keep the offer, audience and benefit consistently visible.", [
+    { label: "What the company sells is explicit (20%)", status: whatClear ? "met" : "missing", detail: whatClear ? `Offer evidence: “${homepage.h1 || primaryOffer}”.` : "The opening copy does not clearly name the offer." },
+    { label: "The intended customer is clear (20%)", status: audience ? "met" : "missing", detail: audience || "No explicit audience statement was detected." },
+    { label: "A concrete benefit is communicated (20%)", status: benefit ? "met" : "missing", detail: benefit || "No clear reason to choose the company was detected." },
+    { label: "A representative product or service is visible (20%)", status: representativeVisible ? "met" : "missing", detail: representativeVisible ? "Representative commercial content was detected." : "No representative product or service was detected." },
+    { label: "The message is consistent across selected pages (20%)", status: consistencyPoints === 20 ? "met" : consistencyPoints === 10 ? "partial" : "missing", detail: consistentTokens.length ? `${consistentTokens.length} offer term${consistentTokens.length === 1 ? "" : "s"} recur across the selected pages.` : "No consistent offer language was detected." },
   ]);
 }
 
@@ -353,15 +362,30 @@ function journeyCategory(homepage: PageFacts, journey: JourneyAnalysis) {
   const complete = journey.primary.status === "complete";
   const steps = journey.primary.clicksToInterface;
   const ecommerce = journey.businessModels.includes("Ecommerce");
-  const score = complete ? steps !== null && steps <= (ecommerce ? 3 : 1) ? 100 : steps !== null && steps <= (ecommerce ? 4 : 2) ? 95 : steps !== null && steps <= (ecommerce ? 5 : 3) ? 80 : 55 : 10;
-  const hasAction = journey.primary.stages.some((stage) => Boolean(stage.ctaText) || stage.nextStepVisible);
-  const hasDestination = journey.primary.destinationUrl !== null;
+  const stages = journey.primary.stages;
+  const verifiedDiscovery = ecommerce
+    ? stages.some((stage) => ["Homepage", "Category", "Product"].includes(stage.pageType) && Boolean(stage.ctaText))
+    : complete && (stages[0]?.pageType === "Homepage" || journey.primary.startUrl === homepage.url);
+  const offerReached = ecommerce
+    ? stages.some((stage) => ["Product", "Category"].includes(stage.pageType)) || stages.some((stage) => stage.pageType === "Homepage" && Boolean(stage.ctaText && ADD_TO_CART.test(stage.ctaText)))
+    : journey.primary.destinationUrl !== null;
+  const hasAction = ecommerce
+    ? stages.some((stage) => Boolean(stage.ctaText && ADD_TO_CART.test(stage.ctaText)))
+    : complete && stages.some((stage) => Boolean(stage.ctaText) || stage.nextStepVisible);
+  const cartStage = stages.find((stage) => stage.pageType === "Cart");
+  const checkoutStage = stages.find((stage) => stage.pageType === "Checkout");
+  const destinationPoints = ecommerce
+    ? (cartStage?.nextStepVisible ? 10 : 0) + (checkoutStage?.nextStepVisible ? 10 : 0)
+    : journey.primary.destinationUrl ? 20 : 0;
   const idealClicks = ecommerce ? 3 : 1;
+  const efficiencyPoints = !complete || steps === null ? 0 : steps <= idealClicks ? 20 : steps === idealClicks + 1 ? 15 : steps === idealClicks + 2 ? 10 : 5;
+  const score = (verifiedDiscovery ? 20 : 0) + (offerReached ? 20 : 0) + (hasAction ? 20 : 0) + destinationPoints + efficiencyPoints;
   return category("customer-journey-path", "Customer Journey Path", score, journey.primary.confidence, complete ? `From an empty cart, the estimated landing-page-to-${ecommerce ? "checkout" : "conversion"} path takes ${steps} click${steps === 1 ? "" : "s"}.` : "Incomplete journey: product discovery or the primary conversion action could not be verified.", [{ statement: complete ? `Estimated path: ${journey.primary.stages.map((stage) => stage.pageType).join(" → ")} (${steps} clicks).` : journey.primary.limitations[0], pageLabel: complete ? "Customer journey" : "Incomplete journey", url: homepage.url }], complete ? "Keep the shortest route to checkout visible." : ecommerce ? "Link product discovery clearly to a product with Add to cart." : "Expose one complete route to the primary conversion interface.", [
-    { label: "A complete route starts on the landing page", status: complete ? "met" : "missing", detail: complete ? "A representative route was mapped." : journey.primary.limitations[0] },
-    { label: "The primary conversion action is detectable", status: hasAction ? "met" : "missing", detail: hasAction ? "A required next action was detected." : "No required next action was detected." },
-    { label: `The ${ecommerce ? "cart and checkout" : "conversion destination"} can be mapped`, status: hasDestination ? "met" : "missing", detail: hasDestination ? "A destination page or state was identified." : "The destination could not be identified." },
-    { label: `${idealClicks} click${idealClicks === 1 ? "" : "s"} or fewer to conversion`, status: complete && steps !== null && steps <= idealClicks ? "met" : complete ? "partial" : "missing", detail: steps === null ? "Click count is unavailable." : `${steps} clicks were estimated.` },
+    { label: "Discovery starts from the landing page (20%)", status: verifiedDiscovery ? "met" : "missing", detail: verifiedDiscovery ? "A first-party discovery action was detected." : "No usable discovery action was detected from the landing page." },
+    { label: `A real ${ecommerce ? "product or purchasable listing" : "conversion destination"} is reached (20%)`, status: offerReached ? "met" : "missing", detail: offerReached ? "Representative commercial content is present in the route." : "No representative commercial destination was verified." },
+    { label: `The primary ${ecommerce ? "Add to cart" : "conversion"} action is detected (20%)`, status: hasAction ? "met" : "missing", detail: hasAction ? "The required conversion action was captured." : "The required conversion action was not captured." },
+    { label: `The ${ecommerce ? "cart and checkout are verified" : "final destination is verified"} (20%)`, status: destinationPoints === 20 ? "met" : destinationPoints > 0 ? "partial" : "missing", detail: ecommerce ? `${cartStage?.nextStepVisible ? "Cart verified" : "Cart inferred"}; ${checkoutStage?.nextStepVisible ? "checkout verified" : "checkout inferred"}.` : journey.primary.destinationUrl ? "A conversion destination was identified." : "The destination could not be identified." },
+    { label: `${idealClicks} click${idealClicks === 1 ? "" : "s"} or fewer to conversion (20%)`, status: efficiencyPoints === 20 ? "met" : efficiencyPoints > 0 ? "partial" : "missing", detail: steps === null ? "Click count is unavailable." : `${steps} clicks were estimated, worth ${efficiencyPoints} of 20 points.` },
   ]);
 }
 

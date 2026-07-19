@@ -6,9 +6,11 @@ const SOSTRENE_PRODUCT_URL = "https://sostrenegrene.com/nl/producten/meubilair/w
 
 const DILLE_CHECKLISTS: Record<GapId, FindingCriterion[]> = {
   "offer-clarity": [
-    { label: "The offer is explicit in the main heading", status: "partial", detail: "The assortment is clear from product collections, while the heading is brand-led." },
-    { label: "Representative products or categories are visible", status: "met", detail: "Product collections, cards and prices are visible." },
-    { label: "A clear browse, shop or search action is available", status: "met", detail: "Category navigation and assortment links are visible." },
+    { label: "What the company sells is explicit (20%)", status: "partial", detail: "The assortment is clear from product collections, while the heading is brand-led." },
+    { label: "The intended customer is clear (20%)", status: "partial", detail: "The consumer shopping context is implied rather than stated." },
+    { label: "A concrete benefit is communicated (20%)", status: "met", detail: "Shipping and the 100-day return period provide concrete reasons to buy." },
+    { label: "Representative products or categories are visible (20%)", status: "met", detail: "Product collections, cards and prices are visible." },
+    { label: "The message matches the visible assortment (20%)", status: "met", detail: "The landing-page copy and visible collections consistently describe home and lifestyle products." },
   ],
   "purchase-confidence": [
     { label: "Clear pricing (10%)", status: "met", detail: "Product prices are visible." },
@@ -21,18 +23,21 @@ const DILLE_CHECKLISTS: Record<GapId, FindingCriterion[]> = {
     { label: "Availability (10%)", status: "missing", detail: "Make availability explicit near products." },
   ],
   "customer-journey-path": [
-    { label: "A complete route starts on the landing page", status: "met", detail: "A representative route was mapped." },
-    { label: "The primary conversion action is detectable", status: "met", detail: "Add to cart is visible on the product page." },
-    { label: "The cart and checkout can be mapped", status: "met", detail: "Cart and checkout stages were identified." },
-    { label: "3 clicks or fewer to conversion", status: "partial", detail: "The representative route takes 4 clicks." },
+    { label: "Discovery starts from the landing page (20%)", status: "met", detail: "A product route starts on the landing page." },
+    { label: "A real product or purchasable listing is reached (20%)", status: "met", detail: "A representative product page is reached." },
+    { label: "The primary Add to cart action is detected (20%)", status: "met", detail: "Add to cart is visible on the product page." },
+    { label: "The cart and checkout are verified (20%)", status: "met", detail: "Cart and checkout stages were identified." },
+    { label: "3 clicks or fewer to conversion (20%)", status: "partial", detail: "The four-click route earns 15 of 20 efficiency points." },
   ],
 };
 
 const SOSTRENE_CHECKLISTS: Record<GapId, FindingCriterion[]> = {
   "offer-clarity": [
-    { label: "The offer is explicit in the main heading", status: "met", detail: "Named collections clarify the assortment." },
-    { label: "Representative products or categories are visible", status: "met", detail: "Product cards, collections and prices are visible." },
-    { label: "A clear browse, shop or search action is available", status: "met", detail: "Product discovery actions are visible." },
+    { label: "What the company sells is explicit (20%)", status: "met", detail: "Named collections clarify the assortment." },
+    { label: "The intended customer is clear (20%)", status: "partial", detail: "The consumer shopping context is implied rather than stated." },
+    { label: "A concrete benefit is communicated (20%)", status: "met", detail: "Delivery, returns and product certification provide concrete reassurance." },
+    { label: "Representative products or categories are visible (20%)", status: "met", detail: "Product cards, collections and prices are visible." },
+    { label: "The message matches the visible assortment (20%)", status: "met", detail: "Landing-page themes and product collections use consistent language." },
   ],
   "purchase-confidence": [
     { label: "Clear pricing (10%)", status: "met", detail: "Product prices are visible." },
@@ -45,10 +50,11 @@ const SOSTRENE_CHECKLISTS: Record<GapId, FindingCriterion[]> = {
     { label: "Availability (10%)", status: "met", detail: "Stock availability is shown." },
   ],
   "customer-journey-path": [
-    { label: "A complete route starts on the landing page", status: "met", detail: "A representative route was mapped." },
-    { label: "The primary conversion action is detectable", status: "met", detail: "Add to cart is available on the landing page." },
-    { label: "The cart and checkout can be mapped", status: "met", detail: "Cart and checkout stages were identified." },
-    { label: "3 clicks or fewer to conversion", status: "met", detail: "The representative route takes 3 clicks." },
+    { label: "Discovery starts from the landing page (20%)", status: "met", detail: "Purchasable products are visible on the landing page." },
+    { label: "A real product or purchasable listing is reached (20%)", status: "met", detail: "A purchasable product listing is present on the landing page." },
+    { label: "The primary Add to cart action is detected (20%)", status: "met", detail: "Add to cart is available on the landing page." },
+    { label: "The cart and checkout are verified (20%)", status: "met", detail: "Cart and checkout stages were identified." },
+    { label: "3 clicks or fewer to conversion (20%)", status: "met", detail: "The representative route takes 3 clicks." },
   ],
 };
 
@@ -58,13 +64,13 @@ export const DEMO_RESULT: AnalysisResult = {
   url: DILLE_URL,
   companyName: "Dille & Kamille",
   primaryService: "Home, kitchen and lifestyle products",
-  score: 86,
+  score: 81,
   scoreLabel: "Strong foundation",
   confidence: "High",
   analyzedAt: "2026-07-19T13:37:00.000Z",
-  summary: "Representative journey score: 86/100 across the three fixed findings.",
+  summary: "Representative journey score: 81/100 across the three fixed findings.",
   overview: {
-    score: 86,
+    score: 81,
     status: "Strong",
     explanation: "The score summarizes the same three deterministic journey findings.",
     businessModel: "Ecommerce",
@@ -74,7 +80,7 @@ export const DEMO_RESULT: AnalysisResult = {
   llmEnhanced: false,
   readiness: {
     status: "scored",
-    score: 86,
+    score: 81,
     assessedWeight: 100,
     minimumWeight: 100,
     formula: "Σ(category score × category weight) ÷ 100",
@@ -82,7 +88,7 @@ export const DEMO_RESULT: AnalysisResult = {
       {
         id: "offer-clarity",
         label: "Offer Clarity",
-        score: 95,
+        score: 80,
         weight: 35,
         confidence: "High",
         explanation: "The landing page clearly presents home, kitchen and lifestyle products.",
@@ -165,7 +171,7 @@ export const DEMO_RESULT: AnalysisResult = {
       title: "Offer Clarity",
       summary: "The landing page clearly presents home, kitchen and lifestyle products.",
       severity: "Low",
-      score: 95,
+      score: 80,
       confidence: "High",
       evidence: [{ statement: "The landing page shows product collections, product cards and prices.", pageLabel: "Dille & Kamille landing page", url: DILLE_URL }],
       checklist: DILLE_CHECKLISTS["offer-clarity"],
@@ -204,13 +210,13 @@ export const DEMO_COMPETITOR_RESULT: AnalysisResult = {
   url: SOSTRENE_URL,
   companyName: "Søstrene Grene",
   primaryService: "Home, hobby and lifestyle products",
-  score: 93,
+  score: 89,
   scoreLabel: "Strong foundation",
   confidence: "High",
   analyzedAt: "2026-07-19T13:37:00.000Z",
   summary: "Saved competitor comparison across the same three findings.",
   overview: {
-    score: 93,
+    score: 89,
     status: "Strong",
     explanation: "The score summarizes the same three deterministic journey findings.",
     businessModel: "Ecommerce",
@@ -220,7 +226,7 @@ export const DEMO_COMPETITOR_RESULT: AnalysisResult = {
   llmEnhanced: false,
   readiness: {
     status: "scored",
-    score: 93,
+    score: 89,
     assessedWeight: 100,
     minimumWeight: 100,
     formula: "Σ(category score × category weight) ÷ 100",
@@ -228,7 +234,7 @@ export const DEMO_COMPETITOR_RESULT: AnalysisResult = {
       {
         id: "offer-clarity",
         label: "Offer Clarity",
-        score: 100,
+        score: 90,
         weight: 35,
         confidence: "High",
         explanation: "The landing page makes it clear that visitors can browse and buy home, hobby and lifestyle products.",
@@ -316,7 +322,7 @@ export const DEMO_COMPETITOR_RESULT: AnalysisResult = {
       title: "Offer Clarity",
       summary: "The landing page makes it clear that visitors can browse and buy home, hobby and lifestyle products.",
       severity: "Low",
-      score: 100,
+      score: 90,
       confidence: "High",
       evidence: [{ statement: "The landing page shows named collections, product cards and prices.", pageLabel: "Søstrene Grene landing page", url: SOSTRENE_URL }],
       checklist: SOSTRENE_CHECKLISTS["offer-clarity"],
