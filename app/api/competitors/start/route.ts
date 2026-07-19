@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { signCompetitorJob, verifyCompetitorSelection } from "@/lib/competitor-token";
+import { signCompetitorJob } from "@/lib/competitor-token";
 import { DEMO_RESULT } from "@/lib/fixture";
 import { startWebsiteCrawl } from "@/lib/firecrawl";
 import type { CompetitorScanResult, CompetitorScanStartResponse } from "@/lib/types";
@@ -30,7 +30,7 @@ function demoResult(): CompetitorScanResult {
 }
 
 export async function POST(request: Request) {
-  let body: { mode?: unknown; candidateToken?: unknown; selectedUrl?: unknown; sourceUrl?: unknown };
+  let body: { mode?: unknown; selectedUrl?: unknown; sourceUrl?: unknown };
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Send a valid JSON request body." }, { status: 400 }); }
   if (body.mode === "fixture") {
     const response: CompetitorScanStartResponse = { status: "complete", result: demoResult() };
@@ -42,23 +42,11 @@ export async function POST(request: Request) {
 
   try {
     const selectedUrl = normalizeAndValidateUrl(body.selectedUrl);
-    let sourceUrl: string;
-    let candidate: { name: string; url: string };
-    if (typeof body.candidateToken === "string" && body.candidateToken) {
-      const verified = verifyCompetitorSelection(body.candidateToken, selectedUrl, process.env.COMPETITOR_SCAN_SECRET || firecrawlKey);
-      sourceUrl = verified.state.sourceUrl;
-      candidate = verified.candidate;
-    } else {
-      sourceUrl = normalizeAndValidateUrl(body.sourceUrl);
-      if (new URL(sourceUrl).hostname.replace(/^www\./, "") === new URL(selectedUrl).hostname.replace(/^www\./, "")) throw new Error("The competitor must use a different domain.");
-      candidate = { name: new URL(selectedUrl).hostname.replace(/^www\./, ""), url: new URL(selectedUrl).origin };
-    }
+    const sourceUrl = normalizeAndValidateUrl(body.sourceUrl);
+    if (new URL(sourceUrl).hostname.replace(/^www\./, "") === new URL(selectedUrl).hostname.replace(/^www\./, "")) throw new Error("The competitor must use a different domain.");
+    const candidate = { name: new URL(selectedUrl).hostname.replace(/^www\./, ""), url: new URL(selectedUrl).origin };
 
-    const job = await startWebsiteCrawl(candidate.url, firecrawlKey, 3, {
-      maxDiscoveryDepth: 2,
-      scrapeTimeoutMs: 20_000,
-      startTimeoutMs: 7_000,
-    });
+    const job = await startWebsiteCrawl(candidate.url, firecrawlKey);
     const token = signCompetitorJob({
       version: 1,
       issuedAt: Date.now(),

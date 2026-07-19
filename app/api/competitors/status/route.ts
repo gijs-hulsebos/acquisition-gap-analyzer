@@ -5,7 +5,7 @@ import { getWebsiteCrawlProgress } from "@/lib/firecrawl";
 import type { CompetitorScanStatusResponse } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 15;
+export const maxDuration = 30;
 
 export async function GET(request: Request) {
   const firecrawlKey = process.env.FIRECRAWL_API_KEY;
@@ -24,7 +24,7 @@ export async function GET(request: Request) {
       return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
     }
 
-    const competitor = competitorFromPages(state.competitor.url, progress.pages);
+    const competitor = await competitorFromPages(state.competitor.url, progress.pages, process.env.OPENROUTER_API_KEY);
     const response: CompetitorScanStatusResponse = {
       status: "complete",
       result: {

@@ -24,7 +24,7 @@ import {
   Sparkles,
   Target,
 } from "lucide-react";
-import type { AnalysisResult, CompetitorCandidate, CompetitorCandidatesResult, CompetitorScanResult, CompetitorScanStartResponse, CompetitorScanStatusResponse, Gap, PublicCompetitor } from "@/lib/types";
+import type { AnalysisResult, CompetitorScanResult, CompetitorScanStartResponse, CompetitorScanStatusResponse, Gap, PublicCompetitor } from "@/lib/types";
 import { readAnalysisResponse } from "@/lib/api-response";
 
 type View = "landing" | "loading" | "results";
@@ -519,11 +519,9 @@ function CompetitorComparison({ result, competitor }: { result: AnalysisResult; 
 }
 
 function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
-  const [status, setStatus] = useState<"idle" | "discovering" | "choosing" | "crawling" | "complete" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "crawling" | "complete" | "error">("idle");
   const [scan, setScan] = useState<CompetitorScanResult | null>(null);
-  const [candidates, setCandidates] = useState<CompetitorCandidate[]>([]);
-  const [candidateToken, setCandidateToken] = useState("");
-  const [manualUrl, setManualUrl] = useState("");
+  const [competitorUrl, setCompetitorUrl] = useState("");
   const [error, setError] = useState("");
 
   async function pollScan(token: string) {
@@ -542,41 +540,8 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
     throw new Error("The competitor website is still processing. Try the scan again in a moment.");
   }
 
-  async function findCandidates() {
-    setStatus("discovering");
-    setScan(null);
-    setCandidates([]);
-    setCandidateToken("");
-    setError("");
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 35_000);
-    try {
-      const response = await fetch("/api/competitors/candidates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(result.mode === "fixture" ? { mode: "fixture" } : {
-          url: result.url,
-          companyName: result.companyName,
-          primaryOffer: result.primaryService,
-          businessModel: result.overview.businessModel,
-        }),
-        signal: controller.signal,
-      });
-      const payload = await response.json() as CompetitorCandidatesResult & { error?: string };
-      if (!response.ok) throw new Error(payload.error || "Competitor suggestions could not be found.");
-      setCandidates(payload.candidates);
-      setCandidateToken(payload.token);
-      setStatus("choosing");
-    } catch (caught) {
-      setError(caught instanceof DOMException && caught.name === "AbortError" ? "Competitor discovery took too long. Please retry." : caught instanceof Error ? caught.message : "The competitor scan failed.");
-      setStatus("error");
-    } finally {
-      window.clearTimeout(timeout);
-    }
-  }
-
-  async function startScan(selectedUrl: string, confirmed: boolean) {
-    if (!selectedUrl.trim()) {
+  async function startScan() {
+    if (!competitorUrl.trim()) {
       setError("Enter a competitor website URL.");
       return;
     }
@@ -588,9 +553,8 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
       const response = await fetch("/api/competitors/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(result.mode === "fixture" ? { mode: "fixture", selectedUrl } : {
-          candidateToken: confirmed ? candidateToken : undefined,
-          selectedUrl,
+        body: JSON.stringify(result.mode === "fixture" ? { mode: "fixture", selectedUrl: competitorUrl } : {
+          selectedUrl: competitorUrl,
           sourceUrl: result.url,
         }),
         signal: controller.signal,
@@ -615,44 +579,24 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
   function resetScan() {
     setStatus("idle");
     setScan(null);
-    setCandidates([]);
-    setCandidateToken("");
-    setManualUrl("");
+    setCompetitorUrl("");
     setError("");
   }
 
   return (
     <section
-      className={`public-competitor-scan ${status === "complete" || status === "choosing" ? "has-results" : ""}`}
+      className={`public-competitor-scan ${status === "complete" ? "has-results" : ""}`}
       aria-labelledby="competitor-scan-heading"
     >
       <div className="competitor-scan-intro">
         <div className="competitor-scan-icon"><Search size={17} /></div>
-        <div><span>Optional extra scan</span><h2 id="competitor-scan-heading">Public competitor</h2><p>Compare the same three findings with one direct competitor.</p></div>
+        <div><span>Optional comparison</span><h2 id="competitor-scan-heading">Compare a competitor</h2><p>Enter a competitor URL to run the same analysis.</p></div>
       </div>
-      {(status === "idle" || status === "discovering" || status === "crawling" || status === "error") && (
-        <button className="competitor-scan-button" type="button" onClick={() => void findCandidates()} disabled={status === "discovering" || status === "crawling"}>
-          {status === "discovering" ? <><LoaderCircle className="spin" size={15} /> Finding competitors</> : status === "crawling" ? <><LoaderCircle className="spin" size={15} /> Crawling competitor</> : <><Search size={15} /> Find competitor</>}
-        </button>
-      )}
-      {status === "error" && <p className="competitor-scan-error">{error}</p>}
-      {status === "choosing" && (
-        <div className="competitor-choices">
-          <header><strong>Choose the correct competitor</strong><span>Only your confirmed website will be crawled.</span></header>
-          {candidates.length ? <div className="competitor-choice-list">
-            {candidates.map((candidate) => (
-              <article key={candidate.url}>
-                <div><strong>{candidate.name}</strong><a href={candidate.url} target="_blank" rel="noreferrer">{new URL(candidate.url).hostname}<ExternalLink size={11} /></a><p>{candidate.reason}</p></div>
-                <button type="button" onClick={() => void startScan(candidate.url, true)}>Use competitor</button>
-              </article>
-            ))}
-          </div> : <p className="competitor-scan-empty">No reliable suggestion was found. Enter a known competitor below.</p>}
-          <form className="manual-competitor" onSubmit={(event) => { event.preventDefault(); void startScan(manualUrl, false); }}>
-            <label htmlFor="manual-competitor-url">Or enter a competitor URL</label>
-            <div><input id="manual-competitor-url" type="url" value={manualUrl} onChange={(event) => setManualUrl(event.target.value)} placeholder="https://competitor.nl" /><button type="submit">Scan URL</button></div>
-          </form>
-        </div>
-      )}
+      {status !== "complete" && <form className="competitor-url-form" onSubmit={(event) => { event.preventDefault(); void startScan(); }}>
+        <label htmlFor="competitor-url">Competitor website URL</label>
+        <div><input id="competitor-url" type="url" required value={competitorUrl} onChange={(event) => setCompetitorUrl(event.target.value)} placeholder="https://competitor.nl" disabled={status === "crawling"} /><button type="submit" disabled={status === "crawling"}>{status === "crawling" ? <><LoaderCircle className="spin" size={15} /> Analyzing</> : <>Compare website <ArrowRight size={14} /></>}</button></div>
+        {status === "error" && <p className="competitor-scan-error">{error}</p>}
+      </form>}
       {status === "complete" && scan && (
         <div className="competitor-scan-results">
           <header><span>{scan.note}</span><button type="button" onClick={resetScan}>Scan again</button></header>

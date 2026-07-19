@@ -9,9 +9,9 @@ A small MVP that analyzes one public website and returns three acquisition findi
 3. Deterministic extraction builds evidence for the landing-page offer, CTAs and customer journey.
 4. OpenRouter optionally rewrites the finished findings in concise language without changing scores or evidence.
 5. The dashboard shows the overview, three findings and crawl details.
-6. After the main report is complete, the user can request competitor suggestions. The system first resolves the submitted company's industry, offer category, target customer, value-chain role and geography from entity-level public evidence.
-7. Public search evidence identifies up to three company names. Their official domains are resolved and candidates are rejected unless their role, core offer, customer type and geography overlap. Consumer retailers cannot be matched to suppliers or wholesalers.
-8. The user confirms one suggestion or enters a known competitor URL. That domain starts one three-page Firecrawl job, and the dashboard polls until a side-by-side comparison of the same three findings is ready.
+6. After the main report is complete, the user may enter one competitor URL.
+7. That domain receives the same bounded eight-page crawl, deterministic analysis and optional OpenRouter wording pass as the original website.
+8. The dashboard compares both websites using the same three findings, evidence and journey estimate.
 
 ## Findings
 
@@ -21,7 +21,7 @@ A small MVP that analyzes one public website and returns three acquisition findi
 
 The analyzer reads public HTML, Markdown and links. It does not click buttons, add products, submit forms or complete checkout. Post-click cart and checkout states may therefore be inferred and are labelled in the evidence.
 
-Competitor analysis is optional and never delays or changes the original report. Discovery may use multiple public-search lookups, but only the one user-confirmed competitor is crawled. The session-only result is not stored in a database.
+Competitor analysis is optional and never delays or changes the original report. There is no automatic competitor search: the user supplies the comparison URL. The session-only result is not stored in a database.
 
 ## Environment
 
