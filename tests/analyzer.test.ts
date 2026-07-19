@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { analyzeCrawl } from "../lib/analyzer";
 import { competitorFromPages } from "../lib/competitor-scan";
 import { signCompetitorJob, verifyCompetitorJob } from "../lib/competitor-token";
+import { DEMO_COMPETITOR_RESULT, DEMO_RESULT } from "../lib/fixture";
 import type { CrawlPage } from "../lib/types";
 
 function page(url: string, title: string, html: string, links: string[] = []): CrawlPage {
@@ -65,6 +66,24 @@ describe("simple acquisition report", () => {
     expect(result.overview.estimatedClicks).toBe(5);
   });
 
+  it("accepts a landing-page Add to cart action as a complete three-click journey", () => {
+    const pages = [
+      page("https://direct-shop.nl/", "Direct Shop", `
+        <h1>Woonaccessoires en producten voor thuis</h1>
+        <p>Bekijk onze collectie woonartikelen voor ieder interieur.</p>
+        <span>€ 1,69</span><span>€ 3,22</span>
+        <div class="product-card">Lepel · Add to Cart: Lepel</div>
+      `),
+      page("https://direct-shop.nl/cart", "Cart", `<h1>Cart</h1><p>Review the selected product and order total before continuing.</p><a href="/checkout">Checkout</a>`),
+      page("https://direct-shop.nl/checkout", "Checkout", `<h1>Checkout</h1><p>Complete your order by entering the delivery and payment information requested below.</p>`),
+    ];
+    const result = analyzeCrawl(pages, "https://direct-shop.nl/", 100);
+    expect(result.journey.primary.status).toBe("complete");
+    expect(result.overview.estimatedClicks).toBe(3);
+    expect(result.gaps[1].score).toBe(100);
+    expect(result.journey.primary.stages[0].pageType).toBe("Homepage");
+  });
+
   it("estimates the journey when a dynamic Add to cart label is not captured", () => {
     const result = analyzeCrawl(ecommercePages("Kies product"), "https://shop.nl/", 100);
     expect(result.journey.primary.status).toBe("complete");
@@ -80,6 +99,15 @@ describe("simple acquisition report", () => {
 });
 
 describe("optional competitor scan", () => {
+  it("ships an instant saved Dille & Kamille versus Søstrene Grene demo", () => {
+    const competitor = DEMO_COMPETITOR_RESULT.competitor;
+    expect(DEMO_RESULT.mode).toBe("fixture");
+    expect(DEMO_RESULT.companyName).toBe("Dille & Kamille");
+    expect(competitor).not.toBeNull();
+    expect(competitor?.name).toBe("Søstrene Grene");
+    expect(competitor?.estimatedClicks).toBe(3);
+    expect(competitor?.findings).toHaveLength(3);
+  });
   it("runs the identical three findings for a supplied competitor URL", async () => {
     const competitor = await competitorFromPages("https://shop.nl/", ecommercePages());
     expect(competitor.findings.map((finding) => finding.id)).toEqual([

@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import type { AnalysisResult, CompetitorScanResult, CompetitorScanStartResponse, CompetitorScanStatusResponse, Gap, PublicCompetitor } from "@/lib/types";
 import { readAnalysisResponse } from "@/lib/api-response";
+import { DEMO_COMPETITOR_RESULT, DEMO_RESULT } from "@/lib/fixture";
 
 type View = "landing" | "loading" | "results";
 type DashboardSection = "overview" | "gaps" | "evidence";
@@ -509,7 +510,7 @@ function CompetitorComparison({ result, competitor }: { result: AnalysisResult; 
       </section>
       <section className="comparison-company comparison-company-competitor" aria-labelledby="competitor-company-heading">
         <header>
-          <div><small>Confirmed direct competitor · {competitor.pagesAnalyzed} pages</small><h3 id="competitor-company-heading"><a href={competitor.url} target="_blank" rel="noreferrer">{competitor.name}<ExternalLink size={13} /></a></h3><span>{competitor.estimatedClicks === null ? "Journey unconfirmed" : `${competitor.estimatedClicks} clicks to conversion`}</span></div>
+          <div><small>Comparison website · {competitor.pagesAnalyzed} pages</small><h3 id="competitor-company-heading"><a href={competitor.url} target="_blank" rel="noreferrer">{competitor.name}<ExternalLink size={13} /></a></h3><span>{competitor.estimatedClicks === null ? "Journey unconfirmed" : `${competitor.estimatedClicks} clicks to conversion`}</span></div>
           <FindingScoreRing score={competitor.score} label={`${competitor.name} overall`} />
         </header>
         <div className="comparison-findings">{competitor.findings.map((finding) => <GapCard gap={finding} compact key={finding.id} />)}</div>
@@ -519,8 +520,9 @@ function CompetitorComparison({ result, competitor }: { result: AnalysisResult; 
 }
 
 function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
-  const [status, setStatus] = useState<"idle" | "crawling" | "complete" | "error">("idle");
-  const [scan, setScan] = useState<CompetitorScanResult | null>(null);
+  const isDemo = result.mode === "fixture";
+  const [status, setStatus] = useState<"idle" | "crawling" | "complete" | "error">(isDemo ? "complete" : "idle");
+  const [scan, setScan] = useState<CompetitorScanResult | null>(isDemo ? DEMO_COMPETITOR_RESULT : null);
   const [competitorUrl, setCompetitorUrl] = useState("");
   const [error, setError] = useState("");
 
@@ -577,6 +579,12 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
   }
 
   function resetScan() {
+    if (isDemo) {
+      setStatus("complete");
+      setScan(DEMO_COMPETITOR_RESULT);
+      setError("");
+      return;
+    }
     setStatus("idle");
     setScan(null);
     setCompetitorUrl("");
@@ -590,7 +598,7 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
     >
       <div className="competitor-scan-intro">
         <div className="competitor-scan-icon"><Search size={17} /></div>
-        <div><span>Optional comparison</span><h2 id="competitor-scan-heading">Compare a competitor</h2><p>Enter a competitor URL to run the same analysis.</p></div>
+        <div><span>{isDemo ? "Saved comparison" : "Optional comparison"}</span><h2 id="competitor-scan-heading">Compare a competitor</h2><p>{isDemo ? "Dille & Kamille compared with Søstrene Grene." : "Enter a competitor URL to run the same analysis."}</p></div>
       </div>
       {status !== "complete" && <form className="competitor-url-form" onSubmit={(event) => { event.preventDefault(); void startScan(); }}>
         <label htmlFor="competitor-url">Competitor website URL</label>
@@ -599,7 +607,7 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
       </form>}
       {status === "complete" && scan && (
         <div className="competitor-scan-results">
-          <header><span>{scan.note}</span><button type="button" onClick={resetScan}>Scan again</button></header>
+          <header><span>{scan.note}</span>{!isDemo && <button type="button" onClick={resetScan}>Scan again</button>}</header>
           {scan.competitor ? <div className="competitor-cards">
             <CompetitorComparison result={result} competitor={scan.competitor} />
           </div> : null}
@@ -756,6 +764,14 @@ export default function Home() {
       return;
     }
 
+    if (mode === "fixture") {
+      setError("");
+      setLoadingStep(4);
+      setResult(DEMO_RESULT);
+      setView("results");
+      return;
+    }
+
     setError("");
     setLoadingStep(0);
     setView("loading");
@@ -771,7 +787,7 @@ export default function Home() {
       const response = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mode === "fixture" ? { mode: "fixture" } : { url }),
+        body: JSON.stringify({ url }),
         signal: controller.signal,
       });
       const payload = await readAnalysisResponse(response);

@@ -2,6 +2,10 @@
 
 A small MVP that analyzes one public website and returns three acquisition findings.
 
+## Saved demo
+
+The demo opens instantly without calling Firecrawl or OpenRouter. It compares preloaded Dille & Kamille findings with preloaded Søstrene Grene findings, making it reliable for product videos.
+
 ## Flow
 
 1. The user submits a URL.
