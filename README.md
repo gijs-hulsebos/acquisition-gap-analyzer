@@ -9,8 +9,9 @@ A small MVP that analyzes one public website and returns three acquisition findi
 3. Deterministic extraction builds evidence for the landing-page offer, CTAs and customer journey.
 4. OpenRouter optionally rewrites the finished findings in concise language without changing scores or evidence.
 5. The dashboard shows the overview, three findings and crawl details.
-6. After the main report is complete, the user can request competitor suggestions. Public search evidence is used to identify up to three company names and resolve their official domains. The user confirms one suggestion or enters a known competitor URL before any competitor crawl starts.
-7. The confirmed competitor starts one three-page Firecrawl job. The dashboard polls a lightweight status endpoint until the comparison is ready.
+6. After the main report is complete, the user can request competitor suggestions. The system first resolves the submitted company's industry, offer category, target customer, value-chain role and geography from entity-level public evidence.
+7. Public search evidence identifies up to three company names. Their official domains are resolved and candidates are rejected unless their role, core offer, customer type and geography overlap. Consumer retailers cannot be matched to suppliers or wholesalers.
+8. The user confirms one suggestion or enters a known competitor URL. That domain starts one three-page Firecrawl job, and the dashboard polls until a side-by-side comparison of the same three findings is ready.
 
 ## Findings
 

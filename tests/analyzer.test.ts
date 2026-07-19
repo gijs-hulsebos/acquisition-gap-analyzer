@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeCrawl } from "../lib/analyzer";
-import { filterCompetitorCandidates, selectDirectCompetitor } from "../lib/competitor-scan";
+import { filterCompetitorCandidates, isValueChainMismatch, selectDirectCompetitor } from "../lib/competitor-scan";
 import { signCompetitorCandidates, signCompetitorJob, verifyCompetitorJob, verifyCompetitorSelection } from "../lib/competitor-token";
 import type { CrawlPage } from "../lib/types";
 
@@ -96,6 +96,16 @@ describe("optional competitor scan", () => {
       { title: "Kitchen Store", description: "Dutch kitchen shop", url: "https://kitchen-store.nl" },
     ], "https://simple-shop.nl", "Simple Shop");
     expect(candidates.map((candidate) => candidate.url)).toEqual(["https://kitchen-store.nl"]);
+  });
+
+  it("rejects suppliers when the analyzed company is a consumer retailer", () => {
+    expect(isValueChainMismatch({
+      industry: "Home and lifestyle retail",
+      offerCategory: "Kitchen and household products",
+      targetCustomer: "Consumers",
+      businessRole: "Retailer",
+      geography: "Netherlands",
+    }, "LLBG is your wholesale bakery products supplier for professional businesses")).toBe(true);
   });
 
   it("selects only one competitor", async () => {

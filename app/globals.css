@@ -459,15 +459,17 @@ a { color: inherit; }
 .competitor-scan-results > header { display: flex; justify-content: space-between; gap: 12px; color: #918897; font-size: 10px; }
 .competitor-scan-results > header button { border: 0; padding: 0; color: #b98bd5; background: transparent; cursor: pointer; font: inherit; font-size: 9px; }
 .competitor-cards { display: grid; grid-template-columns: minmax(0,1fr); gap: 10px; }
-.competitor-card { min-width: 0; padding: 13px; border: 1px solid rgba(211,188,235,.1); border-radius: 10px; background: rgba(255,255,255,.018); }
-.competitor-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.competitor-card-head small { display: block; margin-bottom: 4px; color: #756b7b; font-size: 7px; text-transform: uppercase; letter-spacing: .4px; }
-.competitor-card-head a { display: inline-flex; align-items: center; gap: 5px; color: #ded5e3; text-decoration: none; font-size: 12px; font-weight: 650; }
-.competitor-card-head > strong { color: #d8a6f1; font-size: 20px; font-weight: 650; }
-.competitor-findings { margin-top: 11px; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); border-top: 1px solid rgba(211,188,235,.08); }
-.competitor-findings > div { min-width: 0; padding: 10px 8px 0 0; display: grid; gap: 4px; }
-.competitor-findings span { overflow: hidden; color: #7e7584; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-.competitor-findings strong { color: #bcb2c2; font-size: 10px; font-weight: 620; }
+.competitor-comparison { overflow-x: auto; border: 1px solid rgba(211,188,235,.1); border-radius: 10px; background: rgba(255,255,255,.018); }
+.comparison-row { min-width: 620px; padding: 11px 13px; border-top: 1px solid rgba(211,188,235,.08); display: grid; grid-template-columns: minmax(130px,.75fr) repeat(2,minmax(180px,1fr)); align-items: center; gap: 16px; }
+.comparison-row:first-child { border-top: 0; }
+.comparison-row > span { color: #817786; font-size: 9px; }
+.comparison-row > strong { color: #c9becf; font-size: 11px; font-weight: 630; }
+.comparison-head { padding-top: 14px; padding-bottom: 14px; align-items: end; }
+.comparison-head > span { color: #716777; font-size: 7px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
+.comparison-head > div { min-width: 0; display: grid; gap: 3px; }
+.comparison-head small { color: #746a79; font-size: 7px; text-transform: uppercase; letter-spacing: .4px; }
+.comparison-head strong, .comparison-head a { overflow: hidden; display: inline-flex; align-items: center; gap: 5px; color: #e1d9e5; font-size: 11px; font-style: normal; font-weight: 660; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.comparison-head em { color: #b880d7; font-size: 9px; font-style: normal; }
 .competitor-scan-empty { margin: 0; color: #958b9b; font-size: 10px; }
 .competitor-choices { width: 100%; display: grid; gap: 12px; }
 .competitor-choices > header { display: grid; gap: 3px; }

@@ -484,16 +484,23 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
   );
 }
 
-function CompetitorCard({ competitor }: { competitor: PublicCompetitor }) {
+function comparisonValue(gap: Gap | undefined, estimatedClicks: number | null) {
+  if (!gap || gap.score === null) return "Insufficient";
+  return gap.id === "customer-journey-path" && estimatedClicks !== null ? `${estimatedClicks} clicks · ${gap.score}/100` : `${gap.score}/100`;
+}
+
+function CompetitorComparison({ result, competitor }: { result: AnalysisResult; competitor: PublicCompetitor }) {
   return (
-    <article className="competitor-card">
-      <div className="competitor-card-head">
-        <div><small>Direct public competitor · {competitor.pagesAnalyzed} pages</small><a href={competitor.url} target="_blank" rel="noreferrer">{competitor.name}<ExternalLink size={11} /></a></div>
-        <strong>{competitor.score === null ? "—" : `${competitor.score}%`}</strong>
+    <article className="competitor-comparison">
+      <div className="comparison-row comparison-head">
+        <span>Signal</span>
+        <div><small>Analyzed company</small><strong>{result.companyName}</strong><em>{result.score === null ? "—" : `${result.score}% overall`}</em></div>
+        <div><small>Confirmed competitor · {competitor.pagesAnalyzed} pages</small><a href={competitor.url} target="_blank" rel="noreferrer">{competitor.name}<ExternalLink size={11} /></a><em>{competitor.score === null ? "—" : `${competitor.score}% overall`}</em></div>
       </div>
-      <div className="competitor-findings">
-        {competitor.findings.map((finding) => <div key={finding.id}><span>{finding.title}</span><strong>{finding.score === null ? "Insufficient" : finding.id === "customer-journey-path" && competitor.estimatedClicks !== null ? `${competitor.estimatedClicks} clicks` : `${finding.score}/100`}</strong></div>)}
-      </div>
+      {result.gaps.map((finding) => {
+        const competitorFinding = competitor.findings.find((item) => item.id === finding.id);
+        return <div className="comparison-row" key={finding.id}><span>{finding.title}</span><strong>{comparisonValue(finding, result.overview.estimatedClicks)}</strong><strong>{comparisonValue(competitorFinding, competitor.estimatedClicks)}</strong></div>;
+      })}
     </article>
   );
 }
@@ -637,7 +644,7 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
         <div className="competitor-scan-results">
           <header><span>{scan.note}</span><button type="button" onClick={resetScan}>Scan again</button></header>
           {scan.competitor ? <div className="competitor-cards">
-            <CompetitorCard competitor={scan.competitor} />
+            <CompetitorComparison result={result} competitor={scan.competitor} />
           </div> : null}
         </div>
       )}
