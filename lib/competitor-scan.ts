@@ -40,15 +40,15 @@ async function searchCandidates(profile: ScanProfile, apiKey: string) {
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       query: searchQuery(profile),
-      limit: 10,
+      limit: 6,
       sources: ["web"],
       country: "NL",
       location: "Netherlands",
-      timeout: 6_000,
+      timeout: 4_500,
       ignoreInvalidURLs: true,
       excludeDomains: [hostname(profile.url)],
     }),
-    signal: AbortSignal.timeout(8_000),
+    signal: AbortSignal.timeout(6_000),
   });
   if (!response.ok) throw new Error(`Competitor search returned ${response.status}.`);
   const body = await response.json() as { success?: boolean; data?: { web?: Array<{ title?: string; description?: string; url?: string }> }; error?: string };
@@ -66,7 +66,7 @@ async function selectDirectCompetitors(profile: ScanProfile, candidates: SearchC
       body: JSON.stringify({
         model: process.env.OPENROUTER_MODEL || "openai/gpt-4.1-mini",
         temperature: 0,
-        max_completion_tokens: 350,
+        max_completion_tokens: 220,
         messages: [
           { role: "system", content: "Select at most two direct Dutch competitors from the supplied public search results. They must have the same business model, substantially similar offer and customer market. Reject directories, publishers, marketplaces, resellers of unrelated products and the submitted company. Return only URLs from the candidates." },
           { role: "user", content: JSON.stringify({ company: profile, candidates }) },
@@ -84,7 +84,7 @@ async function selectDirectCompetitors(profile: ScanProfile, candidates: SearchC
           },
         },
       }),
-      signal: AbortSignal.timeout(7_000),
+      signal: AbortSignal.timeout(3_000),
     });
     if (!response.ok) return candidates.slice(0, 2);
     const body = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
@@ -114,7 +114,16 @@ export async function scanPublicCompetitors(profile: ScanProfile, firecrawlKey: 
   const selected = await selectDirectCompetitors(profile, candidates, openrouterKey);
   if (!selected.length) return { sourceUrl: profile.url, searchedAt: new Date().toISOString(), competitors: [], note: "No sufficiently direct public competitor was found." };
 
-  const crawled = await Promise.allSettled(selected.map(async (candidate) => competitorFromPages(candidate.url, await crawlWebsite(candidate.url, firecrawlKey, 3))));
+  const crawled = await Promise.allSettled(selected.map(async (candidate) => competitorFromPages(
+    candidate.url,
+    await crawlWebsite(candidate.url, firecrawlKey, 3, {
+      deadlineMs: 18_000,
+      maxDiscoveryDepth: 2,
+      pollTimeoutMs: 3_000,
+      scrapeTimeoutMs: 10_000,
+      startTimeoutMs: 5_000,
+    }),
+  )));
   const competitors = crawled.flatMap((item) => item.status === "fulfilled" ? [item.value] : []);
   return {
     sourceUrl: profile.url,

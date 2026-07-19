@@ -493,7 +493,7 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
     setStatus("loading");
     setError("");
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 58_000);
+    const timeout = window.setTimeout(() => controller.abort(), 48_000);
     try {
       const response = await fetch("/api/competitors", {
         method: "POST",

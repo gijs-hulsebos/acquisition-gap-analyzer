@@ -7,6 +7,16 @@ import { normalizeAndValidateUrl } from "@/lib/url";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+function within<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("The competitor scan exceeded its fast-scan budget.")), timeoutMs);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 const BUSINESS_MODELS = new Set<BusinessModel>(["Ecommerce", "Lead generation", "Appointment or booking", "Software or subscription", "Professional services", "Local service business", "Marketplace", "Informational or non-commercial"]);
 
 function demoResult(): CompetitorScanResult {
@@ -34,7 +44,10 @@ export async function POST(request: Request) {
   const firecrawlKey = process.env.FIRECRAWL_API_KEY;
   if (!firecrawlKey) return NextResponse.json({ error: "Competitor scanning requires FIRECRAWL_API_KEY." }, { status: 503 });
   try {
-    const result = await scanPublicCompetitors({ url, companyName, primaryOffer, businessModel }, firecrawlKey, process.env.OPENROUTER_API_KEY);
+    const result = await within(
+      scanPublicCompetitors({ url, companyName, primaryOffer, businessModel }, firecrawlKey, process.env.OPENROUTER_API_KEY),
+      42_000,
+    );
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "The competitor scan failed." }, { status: 502 });

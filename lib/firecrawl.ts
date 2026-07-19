@@ -4,6 +4,14 @@ import { canonicalSiteUrl, normalizeAndValidateUrl } from "./url";
 const FIRECRAWL_URL = "https://api.firecrawl.dev/v2";
 const POLL_MS = 900;
 
+type CrawlOptions = {
+  deadlineMs?: number;
+  maxDiscoveryDepth?: number;
+  pollTimeoutMs?: number;
+  scrapeTimeoutMs?: number;
+  startTimeoutMs?: number;
+};
+
 type FirecrawlDocument = {
   markdown?: string;
   html?: string;
@@ -79,7 +87,7 @@ function selectPages(pages: CrawlPage[], rootUrl: string, limit: number) {
 }
 
 /** One bounded first-party crawl. No search, competitors, mapping pass or per-page scrape loop. */
-export async function crawlWebsite(input: string, apiKey: string, limit = 8): Promise<CrawlPage[]> {
+export async function crawlWebsite(input: string, apiKey: string, limit = 8, options: CrawlOptions = {}): Promise<CrawlPage[]> {
   const rootUrl = new URL(normalizeAndValidateUrl(input)).origin;
   const pageLimit = Math.min(8, Math.max(3, limit));
   const start = await fetch(`${FIRECRAWL_URL}/crawl`, {
@@ -88,7 +96,7 @@ export async function crawlWebsite(input: string, apiKey: string, limit = 8): Pr
     body: JSON.stringify({
       url: rootUrl,
       limit: pageLimit,
-      maxDiscoveryDepth: 2,
+      maxDiscoveryDepth: options.maxDiscoveryDepth ?? 2,
       crawlEntireDomain: true,
       allowExternalLinks: false,
       allowSubdomains: false,
@@ -101,22 +109,22 @@ export async function crawlWebsite(input: string, apiKey: string, limit = 8): Pr
         onlyMainContent: false,
         blockAds: true,
         removeBase64Images: true,
-        timeout: 15_000,
+        timeout: options.scrapeTimeoutMs ?? 15_000,
       },
     }),
-    signal: AbortSignal.timeout(7_000),
+    signal: AbortSignal.timeout(options.startTimeoutMs ?? 7_000),
   });
   if (!start.ok) throw new Error(await errorMessage(start));
   const started = await start.json() as { success?: boolean; id?: string; error?: string };
   if (!started.success || !started.id) throw new Error(started.error || "Firecrawl did not start the crawl.");
 
-  const deadline = Date.now() + 24_000;
+  const deadline = Date.now() + (options.deadlineMs ?? 24_000);
   let latest: CrawlPage[] = [];
   while (Date.now() < deadline) {
     const response = await fetch(`${FIRECRAWL_URL}/crawl/${started.id}`, {
       headers: headers(apiKey),
       cache: "no-store",
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(options.pollTimeoutMs ?? 5_000),
     });
     if (!response.ok) throw new Error(await errorMessage(response));
     const status = await response.json() as CrawlStatus;
