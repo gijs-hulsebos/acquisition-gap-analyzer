@@ -1,22 +1,11 @@
 import { NextResponse } from "next/server";
-import { analyzeCrawl } from "@/lib/analyzer";
 import { DEMO_RESULT } from "@/lib/fixture";
 import { crawlWebsite } from "@/lib/firecrawl";
-import { enhanceFindings } from "@/lib/llm";
+import { buildAnalysisResult, withTimeout } from "@/lib/report";
 import { normalizeAndValidateUrl } from "@/lib/url";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-function within<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-    promise.then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      (error) => { clearTimeout(timer); reject(error); },
-    );
-  });
-}
 
 export async function POST(request: Request) {
   let body: { url?: unknown; mode?: unknown };
@@ -55,25 +44,18 @@ export async function POST(request: Request) {
 
   const startedAt = Date.now();
   try {
-    const pages = await within(
+    const pages = await withTimeout(
       crawlWebsite(url, firecrawlKey),
       32_000,
       "The first-party crawl took too long to return evidence. Please try again.",
     );
-    const deterministic = analyzeCrawl(pages, url, Date.now() - startedAt);
-    let result = deterministic;
-    if (process.env.OPENROUTER_API_KEY && Date.now() - startedAt < 42_000) {
-      try {
-        result = await within(
-          enhanceFindings(deterministic, process.env.OPENROUTER_API_KEY),
-          Math.min(8_000, 52_000 - (Date.now() - startedAt)),
-          "Report copy enhancement timed out.",
-        );
-      } catch {
-        result = deterministic;
-      }
-    }
-    result = { ...result, stats: { ...result.stats, processingMs: Date.now() - startedAt } };
+    const elapsed = Date.now() - startedAt;
+    const result = await buildAnalysisResult(
+      pages,
+      url,
+      startedAt,
+      elapsed < 42_000 ? Math.min(8_000, 52_000 - elapsed) : 0,
+    );
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "The website could not be analyzed.";

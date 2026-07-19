@@ -145,12 +145,11 @@ export type CompetitorScanResult = {
 };
 
 export type CompetitorScanStartResponse =
-  | { status: "processing"; token: string; competitor: { name: string; url: string } }
-  | { status: "complete"; result: CompetitorScanResult };
+  | { status: "processing"; token: string; competitor: { name: string; url: string } };
 
 export type CompetitorScanStatusResponse =
   | { status: "processing"; competitor: { name: string; url: string } }
-  | { status: "complete"; result: CompetitorScanResult }
+  | { status: "complete"; result: AnalysisResult }
   | { status: "failed"; error: string };
 
 export type CrawlPage = {
