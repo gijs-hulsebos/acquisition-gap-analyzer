@@ -23,13 +23,13 @@ The demo opens instantly without calling Firecrawl or OpenRouter. It compares pr
 - **CTA Clarity** — whether the commercial calls to action are specific and consistent.
 - **Customer Journey Path** — estimated clicks from the landing page to checkout, starting with an empty cart. For non-ecommerce websites it estimates the path to the primary conversion interface.
 
-The analyzer reads public HTML, Markdown and links. It does not launch a second scrape or browser-agent session, click buttons, add products, submit forms or complete checkout. A journey receives a click count only when every required page and clickable transition is present in the crawl evidence; otherwise it is labelled `Incomplete journey`.
+The analyzer first reads public HTML, Markdown and links. If those pages cannot establish a complete ecommerce route, one bounded active journey verifier attempts the path from an empty cart to checkout using visible controls. It never enters personal or payment data and never places an order. A journey receives a click count only when every performed action is returned with an Add-to-cart action, cart stage and checkout stage; otherwise it remains `Incomplete journey`.
 
 Competitor analysis is optional and never delays or changes the original report. There is no automatic competitor search: the user supplies the comparison URL. The session-only result is not stored in a database.
 
 ## Backend structure
 
-- `analyzeWebsite(url)` is the only live analysis pipeline.
+- `analyzeWebsite(url)` is the only live analysis pipeline, including the conditional journey verifier.
 - `/api/analyze` returns the complete company report.
 - `/api/compare` runs the same pipeline and returns comparison data.
 - Transient Firecrawl 429/502/503/504 responses are retried twice.
