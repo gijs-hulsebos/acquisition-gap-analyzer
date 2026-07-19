@@ -539,7 +539,6 @@ function CompetitorComparison({ company, competitor }: { company: AnalysisResult
           <ComparisonScore score={company.score} label={`${company.companyName} overall`} />
           <div><small>Your company</small><strong>{company.companyName}</strong><span>{shortHost(company.url)}</span></div>
         </div>
-        <span className="comparison-versus">VS</span>
         <div className="comparison-site comparison-site-competitor">
           <ComparisonScore score={competitor.score} label={`${competitor.companyName} overall`} />
           <div><small>Competitor · {competitor.pages.length} pages</small><a href={competitor.url} target="_blank" rel="noreferrer">{competitor.companyName}<ExternalLink size={12} /></a><span>{shortHost(competitor.url)}</span></div>
