@@ -38,4 +38,43 @@ describe("Firecrawl website entry points", () => {
     expect(pages[0].url).toBe("https://example.com/nl");
     expect(fetchMock.mock.calls[2][0]).toBe("https://api.firecrawl.dev/v2/scrape");
   });
+
+  it("keeps polling when one Firecrawl status request times out", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, id: "crawl-3" }), { status: 200 }))
+      .mockRejectedValueOnce(new DOMException("The operation was aborted due to timeout", "TimeoutError"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: "completed",
+        data: [{
+          markdown: "# Shop",
+          html: "<h1>Shop</h1>",
+          links: ["https://example.com/products"],
+          metadata: { sourceURL: "https://example.com/", title: "Shop", statusCode: 200 },
+        }],
+      }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pages = await crawlWebsite("https://example.com/", "key");
+
+    expect(pages).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("returns immediately once the requested page limit is available", async () => {
+    const documents = ["/", "/products", "/product/item"].map((path, index) => ({
+      markdown: `# Page ${index + 1}`,
+      html: `<h1>Page ${index + 1}</h1>`,
+      links: [],
+      metadata: { sourceURL: `https://example.com${path}`, title: `Page ${index + 1}`, statusCode: 200 },
+    }));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, id: "crawl-4" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "scraping", data: documents }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pages = await crawlWebsite("https://example.com/", "key", 3);
+
+    expect(pages).toHaveLength(3);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });

@@ -2,7 +2,7 @@ import type { CrawlPage } from "./types";
 import { canonicalSiteUrl, normalizeAndValidateUrl } from "./url";
 
 const FIRECRAWL_URL = "https://api.firecrawl.dev/v2";
-const POLL_MS = 900;
+const POLL_MS = 650;
 
 export type CrawlOptions = {
   deadlineMs?: number;
@@ -30,6 +30,15 @@ type CrawlStatus = {
   data?: FirecrawlDocument[];
   error?: string;
 };
+
+function isTransientFirecrawlError(error: unknown) {
+  const message = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+  return /abort|timeout|timed out|fetch failed|network|429|500|502|503|504/i.test(message);
+}
+
+async function pause(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 type ScrapeStatus = {
   success?: boolean;
@@ -127,10 +136,10 @@ export async function startWebsiteCrawl(input: string, apiKey: string, limit = 8
         onlyMainContent: false,
         blockAds: true,
         removeBase64Images: true,
-        timeout: options.scrapeTimeoutMs ?? 15_000,
+        timeout: options.scrapeTimeoutMs ?? 30_000,
       },
     }),
-    signal: AbortSignal.timeout(options.startTimeoutMs ?? 7_000),
+    signal: AbortSignal.timeout(options.startTimeoutMs ?? 10_000),
   });
   if (!start.ok) throw new Error(await errorMessage(start));
   const started = await start.json() as { success?: boolean; id?: string; error?: string };
@@ -161,7 +170,7 @@ export async function scrapeWebsitePage(input: string, apiKey: string, timeoutMs
   return toPages([scraped.data], url)[0] || null;
 }
 
-export async function getWebsiteCrawlProgress(job: WebsiteCrawlJob, apiKey: string, pollTimeoutMs = 5_000): Promise<WebsiteCrawlProgress> {
+export async function getWebsiteCrawlProgress(job: WebsiteCrawlJob, apiKey: string, pollTimeoutMs = 8_000): Promise<WebsiteCrawlProgress> {
   const response = await fetch(`${FIRECRAWL_URL}/crawl/${job.id}`, {
     headers: headers(apiKey),
     cache: "no-store",
@@ -178,22 +187,61 @@ export async function getWebsiteCrawlProgress(job: WebsiteCrawlJob, apiKey: stri
 
 /** One bounded first-party crawl. No search, competitors, mapping pass or per-page scrape loop. */
 export async function crawlWebsite(input: string, apiKey: string, limit = 8, options: CrawlOptions = {}): Promise<CrawlPage[]> {
-  const job = await startWebsiteCrawl(input, apiKey, limit, options);
+  const startedAt = Date.now();
+  const deadline = startedAt + (options.deadlineMs ?? 38_000);
+  let job: WebsiteCrawlJob | null = null;
+  let startError: unknown = null;
 
-  const deadline = Date.now() + (options.deadlineMs ?? 24_000);
+  for (let attempt = 0; attempt < 2 && Date.now() < deadline - 4_000; attempt += 1) {
+    try {
+      job = await startWebsiteCrawl(input, apiKey, limit, {
+        ...options,
+        startTimeoutMs: Math.min(options.startTimeoutMs ?? 10_000, Math.max(3_000, deadline - Date.now() - 3_000)),
+      });
+      break;
+    } catch (error) {
+      startError = error;
+      if (!isTransientFirecrawlError(error) || attempt === 1) break;
+      await pause(350);
+    }
+  }
+
+  if (!job) {
+    try {
+      const remaining = Math.max(3_000, Math.min(12_000, deadline - Date.now() - 1_000));
+      const fallback = await scrapeWebsitePage(input, apiKey, remaining);
+      if (fallback) return [fallback];
+    } catch (fallbackError) {
+      if (!isTransientFirecrawlError(fallbackError)) throw fallbackError;
+    }
+    if (startError && !isTransientFirecrawlError(startError)) throw startError;
+    throw new Error("Firecrawl did not return website evidence within the scan time. Please try again.");
+  }
+
   let latest: CrawlPage[] = [];
   while (Date.now() < deadline) {
-    const progress = await getWebsiteCrawlProgress(job, apiKey, options.pollTimeoutMs ?? 5_000);
-    latest = progress.pages;
-    if (progress.status === "failed") throw new Error(progress.error || "The website crawl failed.");
-    if (progress.status === "completed") break;
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    try {
+      const remaining = deadline - Date.now();
+      const progress = await getWebsiteCrawlProgress(job, apiKey, Math.min(options.pollTimeoutMs ?? 8_000, Math.max(2_000, remaining)));
+      if (progress.pages.length >= latest.length) latest = progress.pages;
+      if (progress.status === "failed") throw new Error(progress.error || "The website crawl failed.");
+      if (progress.status === "completed" || latest.length >= job.pageLimit) break;
+    } catch (error) {
+      if (!isTransientFirecrawlError(error)) throw error;
+      // A slow status request must not discard an otherwise healthy asynchronous crawl.
+    }
+    if (Date.now() < deadline - POLL_MS) await pause(POLL_MS);
   }
 
   if (!latest.length) {
-    const fallback = await scrapeWebsitePage(input, apiKey, Math.min(options.scrapeTimeoutMs ?? 15_000, 10_000));
-    if (fallback) return [fallback];
-    throw new Error("Firecrawl returned no readable pages within the scan time.");
+    try {
+      const remaining = Math.max(2_500, Math.min(10_000, deadline - Date.now() - 500));
+      const fallback = await scrapeWebsitePage(input, apiKey, remaining);
+      if (fallback) return [fallback];
+    } catch (error) {
+      if (!isTransientFirecrawlError(error)) throw error;
+    }
+    throw new Error("Firecrawl returned no readable pages within the scan time. Please try again.");
   }
   return latest;
 }

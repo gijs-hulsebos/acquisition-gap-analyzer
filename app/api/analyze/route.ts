@@ -65,10 +65,14 @@ export async function POST(request: Request) {
     );
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "The website could not be analyzed.";
+    const rawMessage = error instanceof Error ? error.message : "The website could not be analyzed.";
+    const timedOut = /abort|timeout|timed out|too long/i.test(rawMessage);
+    const message = timedOut
+      ? "The website did not return enough evidence within the scan time. Please try again."
+      : rawMessage;
     return NextResponse.json(
       { error: message },
-      { status: /too long/i.test(message) ? 504 : 502 },
+      { status: timedOut ? 504 : 502 },
     );
   }
 }
