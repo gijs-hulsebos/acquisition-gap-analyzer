@@ -7,7 +7,7 @@ import type { BusinessModel, CompetitorScanResult, CompetitorScanStartResponse }
 import { normalizeAndValidateUrl } from "@/lib/url";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 45;
 
 const BUSINESS_MODELS = new Set<BusinessModel>(["Ecommerce", "Lead generation", "Appointment or booking", "Software or subscription", "Professional services", "Local service business", "Marketplace", "Informational or non-commercial"]);
 

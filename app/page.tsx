@@ -524,7 +524,7 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
     setScan(null);
     setError("");
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 25_000);
+    const timeout = window.setTimeout(() => controller.abort(), 35_000);
     try {
       const response = await fetch("/api/competitors/start", {
         method: "POST",
@@ -575,7 +575,7 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
           <header><span>{scan.note}</span><button type="button" onClick={() => void runScan()}>Scan again</button></header>
           {scan.competitor ? <div className="competitor-cards">
             <CompetitorCard competitor={scan.competitor} />
-          </div> : <p className="competitor-scan-empty">No sufficiently direct competitor could be verified from the public results.</p>}
+          </div> : null}
         </div>
       )}
     </section>

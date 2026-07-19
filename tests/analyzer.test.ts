@@ -84,10 +84,18 @@ describe("optional competitor scan", () => {
     const candidates = filterCompetitorCandidates([
       { title: "Submitted company", description: "", url: "https://shop.nl/products" },
       { title: "Review", description: "", url: "https://trustpilot.com/review/shop.nl" },
-      { title: "Direct competitor", description: "Similar Dutch shop", url: "https://competitor.nl/products" },
+      { title: "Kitchen Store", description: "Similar Dutch shop", url: "https://competitor.nl/products" },
       { title: "Duplicate result", description: "", url: "https://competitor.nl/about" },
     ], "https://shop.nl/");
-    expect(candidates).toEqual([{ title: "Direct competitor", description: "Similar Dutch shop", url: "https://competitor.nl" }]);
+    expect(candidates).toEqual([{ title: "Kitchen Store", description: "Similar Dutch shop", url: "https://competitor.nl" }]);
+  });
+
+  it("rejects another regional domain belonging to the submitted company", () => {
+    const candidates = filterCompetitorCandidates([
+      { title: "Simple Shop Belgium", description: "Belgian store", url: "https://simple-shop.be" },
+      { title: "Kitchen Store", description: "Dutch kitchen shop", url: "https://kitchen-store.nl" },
+    ], "https://simple-shop.nl", "Simple Shop");
+    expect(candidates.map((candidate) => candidate.url)).toEqual(["https://kitchen-store.nl"]);
   });
 
   it("selects only one competitor", async () => {

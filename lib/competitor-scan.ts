@@ -3,8 +3,9 @@ import type { BusinessModel, CrawlPage, PublicCompetitor } from "./types";
 import { normalizeAndValidateUrl } from "./url";
 
 const FIRECRAWL_SEARCH_URL = "https://api.firecrawl.dev/v2/search";
-const EXCLUDED_HOSTS = /(^|\.)(facebook|instagram|linkedin|youtube|x|twitter|trustpilot|wikipedia|reddit|pinterest|indeed|amazon|bol|marktplaats|yelp|tripadvisor|kvk|startpagina|goudengids)\./i;
+const EXCLUDED_HOSTS = /(^|\.)(facebook|instagram|linkedin|youtube|x|twitter|trustpilot|wikipedia|reddit|pinterest|indeed|amazon|bol|marktplaats|yelp|tripadvisor|kvk|startpagina|goudengids|cbinsights|crunchbase|similarweb|ahrefs|semrush|companyinfo|zoominfo|rocketreach|europages)\./i;
 const NON_COMPETITOR_PATH = /\/(blog|nieuws|news|articles?|artikelen?|reviews?|vergelijk|comparison|directory|gids|lijst|top-?\d+|privacy|voorwaarden|terms)(\/|$)/i;
+const NON_COMPETITOR_TEXT = /\b(alternatives?|competitors?|concurrenten|vergelijk(?:en|ing)?|comparison|ranking|top\s*\d+|directory|bedrijvengids)\b/i;
 const TOKEN_STOP_WORDS = new Set(["and", "the", "for", "from", "with", "online", "assortment", "bedrijf", "bedrijven", "voor", "van", "met", "een", "het", "de", "en", "webshop", "winkel", "nederland"]);
 
 export type SearchCandidate = { title: string; description: string; url: string };
@@ -19,33 +20,76 @@ function tokens(value: string) {
     .filter((token) => !TOKEN_STOP_WORDS.has(token));
 }
 
-export function filterCompetitorCandidates(results: SearchCandidate[], ownUrl: string) {
+function brandKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+export function filterCompetitorCandidates(results: SearchCandidate[], ownUrl: string, companyName = "") {
   const ownHost = hostname(ownUrl);
+  const ownBrand = brandKey(companyName);
   const seen = new Set<string>();
   return results.flatMap((candidate) => {
     let url: string;
     try { url = normalizeAndValidateUrl(candidate.url); } catch { return []; }
     const parsed = new URL(url);
     const host = hostname(url);
-    if (host === ownHost || EXCLUDED_HOSTS.test(host) || NON_COMPETITOR_PATH.test(parsed.pathname) || seen.has(host)) return [];
+    const candidateBrand = brandKey(`${candidate.title} ${host.split(".")[0]}`);
+    if (host === ownHost || EXCLUDED_HOSTS.test(host) || NON_COMPETITOR_PATH.test(parsed.pathname) || NON_COMPETITOR_TEXT.test(candidate.title) || seen.has(host) || (ownBrand.length >= 5 && candidateBrand.includes(ownBrand))) return [];
     seen.add(host);
     return [{ ...candidate, url: parsed.origin }];
   });
 }
 
-function searchQuery(profile: ScanProfile) {
-  const model = profile.businessModel === "Ecommerce" ? "webshop winkel" : "bedrijf";
-  const offer = profile.primaryOffer.replace(/^Online assortment:\s*/i, "").slice(0, 110);
-  return `directe concurrent ${model} ${offer} Nederland -reviews -vergelijk`;
+function fallbackMarket(profile: ScanProfile) {
+  return `bedrijven vergelijkbaar met ${profile.companyName}`.slice(0, 90);
 }
 
-async function searchCandidates(profile: ScanProfile, apiKey: string) {
+async function resolveMarket(profile: ScanProfile, apiKey?: string) {
+  if (!apiKey) return fallbackMarket(profile);
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: process.env.OPENROUTER_MODEL || "openai/gpt-4.1-mini",
+        temperature: 0,
+        max_completion_tokens: 100,
+        messages: [
+          { role: "system", content: "Convert the supplied company identity and website offer into one broad Dutch market category suitable for finding direct competitors. Use 3 to 7 concrete words. Do not repeat individual product names, the company name or vague terms such as retail, company or webshop." },
+          { role: "user", content: JSON.stringify(profile) },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "competitor_market",
+            strict: true,
+            schema: { type: "object", properties: { market: { type: "string", minLength: 3, maxLength: 90 } }, required: ["market"], additionalProperties: false },
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (!response.ok) return fallbackMarket(profile);
+    const body = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const parsed = JSON.parse(body.choices?.[0]?.message?.content || "{}") as { market?: string };
+    return parsed.market?.trim() || fallbackMarket(profile);
+  } catch {
+    return fallbackMarket(profile);
+  }
+}
+
+function searchQuery(profile: ScanProfile, market: string) {
+  const model = profile.businessModel === "Ecommerce" ? "webshop winkel" : "bedrijf";
+  return `${market} ${model} Nederland officiële website -reviews -vergelijk`;
+}
+
+async function searchCandidates(profile: ScanProfile, market: string, apiKey: string) {
   const response = await fetch(FIRECRAWL_SEARCH_URL, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      query: searchQuery(profile),
-      limit: 6,
+      query: searchQuery(profile, market),
+      limit: 8,
       sources: ["web"],
       country: "NL",
       location: "Netherlands",
@@ -59,7 +103,7 @@ async function searchCandidates(profile: ScanProfile, apiKey: string) {
   const body = await response.json() as { success?: boolean; data?: { web?: Array<{ title?: string; description?: string; url?: string }> }; error?: string };
   if (!body.success) throw new Error(body.error || "Competitor search failed.");
   const results = (body.data?.web || []).flatMap((item) => item.url ? [{ title: item.title || hostname(item.url), description: item.description || "", url: item.url }] : []);
-  return filterCompetitorCandidates(results, profile.url);
+  return filterCompetitorCandidates(results, profile.url, profile.companyName);
 }
 
 function fallbackCandidate(profile: ScanProfile, candidates: SearchCandidate[]) {
@@ -105,14 +149,15 @@ export async function selectDirectCompetitor(profile: ScanProfile, candidates: S
     if (!response.ok) return fallbackCandidate(profile, candidates);
     const body = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
     const parsed = JSON.parse(body.choices?.[0]?.message?.content || "{}") as { url?: string | null };
-    return parsed.url ? candidates.find((candidate) => candidate.url === parsed.url) || null : null;
+    return parsed.url ? candidates.find((candidate) => candidate.url === parsed.url) || fallbackCandidate(profile, candidates) : fallbackCandidate(profile, candidates);
   } catch {
     return fallbackCandidate(profile, candidates);
   }
 }
 
 export async function discoverPublicCompetitor(profile: ScanProfile, firecrawlKey: string, openrouterKey?: string) {
-  return selectDirectCompetitor(profile, await searchCandidates(profile, firecrawlKey), openrouterKey);
+  const market = await resolveMarket(profile, openrouterKey);
+  return selectDirectCompetitor(profile, await searchCandidates(profile, market, firecrawlKey), openrouterKey);
 }
 
 export function competitorFromPages(seedUrl: string, pages: CrawlPage[]): PublicCompetitor {
