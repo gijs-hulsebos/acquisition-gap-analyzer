@@ -24,7 +24,7 @@ import {
   Sparkles,
   Target,
 } from "lucide-react";
-import type { AnalysisResult, CompetitorScanResult, Gap } from "@/lib/types";
+import type { AnalysisResult, CompetitorScanResult, CompetitorScanStartResponse, CompetitorScanStatusResponse, Gap, PublicCompetitor } from "@/lib/types";
 import { readAnalysisResponse } from "@/lib/api-response";
 
 type View = "landing" | "loading" | "results";
@@ -484,18 +484,49 @@ function AcquisitionJourney({ result }: { result: AnalysisResult }) {
   );
 }
 
+function CompetitorCard({ competitor }: { competitor: PublicCompetitor }) {
+  return (
+    <article className="competitor-card">
+      <div className="competitor-card-head">
+        <div><small>Direct public competitor · {competitor.pagesAnalyzed} pages</small><a href={competitor.url} target="_blank" rel="noreferrer">{competitor.name}<ExternalLink size={11} /></a></div>
+        <strong>{competitor.score === null ? "—" : `${competitor.score}%`}</strong>
+      </div>
+      <div className="competitor-findings">
+        {competitor.findings.map((finding) => <div key={finding.id}><span>{finding.title}</span><strong>{finding.score === null ? "Insufficient" : finding.id === "customer-journey-path" && competitor.estimatedClicks !== null ? `${competitor.estimatedClicks} clicks` : `${finding.score}/100`}</strong></div>)}
+      </div>
+    </article>
+  );
+}
+
 function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
-  const [status, setStatus] = useState<"idle" | "loading" | "complete" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "discovering" | "crawling" | "complete" | "error">("idle");
   const [scan, setScan] = useState<CompetitorScanResult | null>(null);
   const [error, setError] = useState("");
 
+  async function pollScan(token: string) {
+    const deadline = Date.now() + 90_000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 2_500));
+      const response = await fetch(`/api/competitors/status?token=${encodeURIComponent(token)}`, { cache: "no-store" });
+      const payload = await response.json() as CompetitorScanStatusResponse & { error?: string };
+      if (!response.ok) throw new Error(payload.error || "The competitor crawl status could not be read.");
+      if (payload.status === "processing") continue;
+      if (payload.status === "failed") throw new Error(payload.error);
+      setScan(payload.result);
+      setStatus("complete");
+      return;
+    }
+    throw new Error("The competitor website is still processing. Try the scan again in a moment.");
+  }
+
   async function runScan() {
-    setStatus("loading");
+    setStatus("discovering");
+    setScan(null);
     setError("");
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 48_000);
+    const timeout = window.setTimeout(() => controller.abort(), 25_000);
     try {
-      const response = await fetch("/api/competitors", {
+      const response = await fetch("/api/competitors/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(result.mode === "fixture" ? { mode: "fixture" } : {
@@ -506,13 +537,18 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
         }),
         signal: controller.signal,
       });
-      const text = await response.text();
-      const payload = text ? JSON.parse(text) as CompetitorScanResult & { error?: string } : null;
+      const payload = await response.json() as CompetitorScanStartResponse & { error?: string };
       if (!response.ok || !payload) throw new Error(payload?.error || "The competitor scan could not be completed.");
-      setScan(payload);
-      setStatus("complete");
+      window.clearTimeout(timeout);
+      if (payload.status === "complete") {
+        setScan(payload.result);
+        setStatus("complete");
+        return;
+      }
+      setStatus("crawling");
+      await pollScan(payload.token);
     } catch (caught) {
-      setError(caught instanceof DOMException && caught.name === "AbortError" ? "The competitor scan took too long." : caught instanceof Error ? caught.message : "The competitor scan failed.");
+      setError(caught instanceof DOMException && caught.name === "AbortError" ? "Competitor discovery took too long. Please retry." : caught instanceof Error ? caught.message : "The competitor scan failed.");
       setStatus("error");
     } finally {
       window.clearTimeout(timeout);
@@ -526,29 +562,19 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
     >
       <div className="competitor-scan-intro">
         <div className="competitor-scan-icon"><Search size={17} /></div>
-        <div><span>Optional extra scan</span><h2 id="competitor-scan-heading">Public competitors</h2><p>Compare the same three findings with up to two direct competitors.</p></div>
+        <div><span>Optional extra scan</span><h2 id="competitor-scan-heading">Public competitor</h2><p>Compare the same three findings with one direct competitor.</p></div>
       </div>
       {status !== "complete" && (
-        <button className="competitor-scan-button" type="button" onClick={() => void runScan()} disabled={status === "loading"}>
-          {status === "loading" ? <><LoaderCircle className="spin" size={15} /> Scanning competitors</> : <><Search size={15} /> Scan 2 competitors</>}
+        <button className="competitor-scan-button" type="button" onClick={() => void runScan()} disabled={status === "discovering" || status === "crawling"}>
+          {status === "discovering" ? <><LoaderCircle className="spin" size={15} /> Finding competitor</> : status === "crawling" ? <><LoaderCircle className="spin" size={15} /> Crawling competitor</> : <><Search size={15} /> Scan competitor</>}
         </button>
       )}
       {status === "error" && <p className="competitor-scan-error">{error}</p>}
       {status === "complete" && scan && (
         <div className="competitor-scan-results">
           <header><span>{scan.note}</span><button type="button" onClick={() => void runScan()}>Scan again</button></header>
-          {scan.competitors.length ? <div className="competitor-cards">
-            {scan.competitors.map((competitor) => (
-              <article className="competitor-card" key={competitor.url}>
-                <div className="competitor-card-head">
-                  <div><small>Direct public competitor · {competitor.pagesAnalyzed} pages</small><a href={competitor.url} target="_blank" rel="noreferrer">{competitor.name}<ExternalLink size={11} /></a></div>
-                  <strong>{competitor.score === null ? "—" : `${competitor.score}%`}</strong>
-                </div>
-                <div className="competitor-findings">
-                  {competitor.findings.map((finding) => <div key={finding.id}><span>{finding.title}</span><strong>{finding.score === null ? "Insufficient" : finding.id === "customer-journey-path" && competitor.estimatedClicks !== null ? `${competitor.estimatedClicks} clicks` : `${finding.score}/100`}</strong></div>)}
-                </div>
-              </article>
-            ))}
+          {scan.competitor ? <div className="competitor-cards">
+            <CompetitorCard competitor={scan.competitor} />
           </div> : <p className="competitor-scan-empty">No sufficiently direct competitor could be verified from the public results.</p>}
         </div>
       )}

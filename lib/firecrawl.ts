@@ -4,7 +4,7 @@ import { canonicalSiteUrl, normalizeAndValidateUrl } from "./url";
 const FIRECRAWL_URL = "https://api.firecrawl.dev/v2";
 const POLL_MS = 900;
 
-type CrawlOptions = {
+export type CrawlOptions = {
   deadlineMs?: number;
   maxDiscoveryDepth?: number;
   pollTimeoutMs?: number;
@@ -28,6 +28,18 @@ type FirecrawlDocument = {
 type CrawlStatus = {
   status?: "scraping" | "completed" | "failed" | "cancelled";
   data?: FirecrawlDocument[];
+  error?: string;
+};
+
+export type WebsiteCrawlJob = {
+  id: string;
+  rootUrl: string;
+  pageLimit: number;
+};
+
+export type WebsiteCrawlProgress = {
+  status: "processing" | "completed" | "failed";
+  pages: CrawlPage[];
   error?: string;
 };
 
@@ -87,7 +99,7 @@ function selectPages(pages: CrawlPage[], rootUrl: string, limit: number) {
 }
 
 /** One bounded first-party crawl. No search, competitors, mapping pass or per-page scrape loop. */
-export async function crawlWebsite(input: string, apiKey: string, limit = 8, options: CrawlOptions = {}): Promise<CrawlPage[]> {
+export async function startWebsiteCrawl(input: string, apiKey: string, limit = 8, options: CrawlOptions = {}): Promise<WebsiteCrawlJob> {
   const rootUrl = new URL(normalizeAndValidateUrl(input)).origin;
   const pageLimit = Math.min(8, Math.max(3, limit));
   const start = await fetch(`${FIRECRAWL_URL}/crawl`, {
@@ -118,24 +130,38 @@ export async function crawlWebsite(input: string, apiKey: string, limit = 8, opt
   const started = await start.json() as { success?: boolean; id?: string; error?: string };
   if (!started.success || !started.id) throw new Error(started.error || "Firecrawl did not start the crawl.");
 
+  return { id: started.id, rootUrl, pageLimit };
+}
+
+export async function getWebsiteCrawlProgress(job: WebsiteCrawlJob, apiKey: string, pollTimeoutMs = 5_000): Promise<WebsiteCrawlProgress> {
+  const response = await fetch(`${FIRECRAWL_URL}/crawl/${job.id}`, {
+    headers: headers(apiKey),
+    cache: "no-store",
+    signal: AbortSignal.timeout(pollTimeoutMs),
+  });
+  if (!response.ok) throw new Error(await errorMessage(response));
+  const status = await response.json() as CrawlStatus;
+  const pages = selectPages(toPages(status.data || [], job.rootUrl), job.rootUrl, job.pageLimit);
+  if (status.status === "failed" || status.status === "cancelled") {
+    return { status: "failed", pages, error: status.error || "The website crawl failed." };
+  }
+  return { status: status.status === "completed" ? "completed" : "processing", pages };
+}
+
+/** One bounded first-party crawl. No search, competitors, mapping pass or per-page scrape loop. */
+export async function crawlWebsite(input: string, apiKey: string, limit = 8, options: CrawlOptions = {}): Promise<CrawlPage[]> {
+  const job = await startWebsiteCrawl(input, apiKey, limit, options);
+
   const deadline = Date.now() + (options.deadlineMs ?? 24_000);
   let latest: CrawlPage[] = [];
   while (Date.now() < deadline) {
-    const response = await fetch(`${FIRECRAWL_URL}/crawl/${started.id}`, {
-      headers: headers(apiKey),
-      cache: "no-store",
-      signal: AbortSignal.timeout(options.pollTimeoutMs ?? 5_000),
-    });
-    if (!response.ok) throw new Error(await errorMessage(response));
-    const status = await response.json() as CrawlStatus;
-    latest = toPages(status.data || [], rootUrl);
-    if (status.status === "failed" || status.status === "cancelled") {
-      throw new Error(status.error || "The website crawl failed.");
-    }
-    if (status.status === "completed") break;
+    const progress = await getWebsiteCrawlProgress(job, apiKey, options.pollTimeoutMs ?? 5_000);
+    latest = progress.pages;
+    if (progress.status === "failed") throw new Error(progress.error || "The website crawl failed.");
+    if (progress.status === "completed") break;
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
 
   if (!latest.length) throw new Error("Firecrawl returned no readable pages within the scan time.");
-  return selectPages(latest, rootUrl, pageLimit);
+  return latest;
 }

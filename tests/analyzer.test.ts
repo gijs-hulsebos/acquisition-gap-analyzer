@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { analyzeCrawl } from "../lib/analyzer";
-import { filterCompetitorCandidates } from "../lib/competitor-scan";
+import { filterCompetitorCandidates, selectDirectCompetitor } from "../lib/competitor-scan";
+import { signCompetitorJob, verifyCompetitorJob } from "../lib/competitor-token";
 import type { CrawlPage } from "../lib/types";
 
 function page(url: string, title: string, html: string, links: string[] = []): CrawlPage {
@@ -87,5 +88,31 @@ describe("optional competitor scan", () => {
       { title: "Duplicate result", description: "", url: "https://competitor.nl/about" },
     ], "https://shop.nl/");
     expect(candidates).toEqual([{ title: "Direct competitor", description: "Similar Dutch shop", url: "https://competitor.nl" }]);
+  });
+
+  it("selects only one competitor", async () => {
+    const selected = await selectDirectCompetitor({
+      url: "https://shop.nl/",
+      companyName: "Simple Shop",
+      primaryOffer: "Kitchen products and cookware",
+      businessModel: "Ecommerce",
+    }, [
+      { title: "Kitchen Store", description: "Dutch kitchen products and cookware", url: "https://kitchen-store.nl" },
+      { title: "Furniture Store", description: "Dutch furniture", url: "https://furniture-store.nl" },
+    ]);
+    expect(selected?.url).toBe("https://kitchen-store.nl");
+  });
+
+  it("signs crawl state and rejects a modified job token", () => {
+    const state = {
+      version: 1 as const,
+      issuedAt: Date.now(),
+      sourceUrl: "https://shop.nl",
+      competitor: { name: "Kitchen Store", url: "https://kitchen-store.nl" },
+      job: { id: "crawl-123", rootUrl: "https://kitchen-store.nl", pageLimit: 3 },
+    };
+    const token = signCompetitorJob(state, "test-secret");
+    expect(verifyCompetitorJob(token, "test-secret")).toEqual(state);
+    expect(() => verifyCompetitorJob(`${token}x`, "test-secret")).toThrow("Invalid competitor scan token");
   });
 });

@@ -140,9 +140,18 @@ export type PublicCompetitor = {
 export type CompetitorScanResult = {
   sourceUrl: string;
   searchedAt: string;
-  competitors: PublicCompetitor[];
+  competitor: PublicCompetitor | null;
   note: string;
 };
+
+export type CompetitorScanStartResponse =
+  | { status: "processing"; token: string; competitor: { name: string; url: string } }
+  | { status: "complete"; result: CompetitorScanResult };
+
+export type CompetitorScanStatusResponse =
+  | { status: "processing"; competitor: { name: string; url: string } }
+  | { status: "complete"; result: CompetitorScanResult }
+  | { status: "failed"; error: string };
 
 export type CrawlPage = {
   url: string;
