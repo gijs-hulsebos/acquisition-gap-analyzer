@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { analyzeCrawl } from "@/lib/analyzer";
 import { DEMO_RESULT } from "@/lib/fixture";
 import { crawlWebsite } from "@/lib/firecrawl";
-import { enhanceFindings } from "@/lib/llm";
+import { buildReportFromPages } from "@/lib/report";
 import { normalizeAndValidateUrl } from "@/lib/url";
 
 export const runtime = "nodejs";
@@ -60,20 +59,13 @@ export async function POST(request: Request) {
       32_000,
       "The first-party crawl took too long to return evidence. Please try again.",
     );
-    const deterministic = analyzeCrawl(pages, url, Date.now() - startedAt);
-    let result = deterministic;
-    if (process.env.OPENROUTER_API_KEY && Date.now() - startedAt < 42_000) {
-      try {
-        result = await within(
-          enhanceFindings(deterministic, process.env.OPENROUTER_API_KEY),
-          Math.min(8_000, 52_000 - (Date.now() - startedAt)),
-          "Report copy enhancement timed out.",
-        );
-      } catch {
-        result = deterministic;
-      }
-    }
-    result = { ...result, stats: { ...result.stats, processingMs: Date.now() - startedAt } };
+    const report = await buildReportFromPages(
+      pages,
+      url,
+      Date.now() - startedAt,
+      Date.now() - startedAt < 42_000 ? process.env.OPENROUTER_API_KEY : undefined,
+    );
+    const result = { ...report, stats: { ...report.stats, processingMs: Date.now() - startedAt } };
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "The website could not be analyzed.";

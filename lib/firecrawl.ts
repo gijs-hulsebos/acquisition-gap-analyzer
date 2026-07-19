@@ -89,7 +89,9 @@ function pageRole(page: CrawlPage, homepageUrl: string) {
 
 function selectPages(pages: CrawlPage[], rootUrl: string, limit: number) {
   if (!pages.length) return [];
-  const homepage = pages.find((page) => new URL(page.url).pathname === "/")
+  const normalizedRoot = canonicalSiteUrl(rootUrl, rootUrl);
+  const homepage = pages.find((page) => page.url === normalizedRoot)
+    || pages.find((page) => new URL(page.url).pathname === "/")
     || [...pages].sort((a, b) => new URL(a.url).pathname.length - new URL(b.url).pathname.length)[0];
   return [homepage, ...pages
     .filter((page) => page.url !== homepage.url)
@@ -100,7 +102,8 @@ function selectPages(pages: CrawlPage[], rootUrl: string, limit: number) {
 
 /** One bounded first-party crawl. No search, competitors, mapping pass or per-page scrape loop. */
 export async function startWebsiteCrawl(input: string, apiKey: string, limit = 8, options: CrawlOptions = {}): Promise<WebsiteCrawlJob> {
-  const rootUrl = new URL(normalizeAndValidateUrl(input)).origin;
+  const normalizedInput = normalizeAndValidateUrl(input);
+  const rootUrl = canonicalSiteUrl(normalizedInput, normalizedInput) || normalizedInput;
   const pageLimit = Math.min(8, Math.max(3, limit));
   const start = await fetch(`${FIRECRAWL_URL}/crawl`, {
     method: "POST",

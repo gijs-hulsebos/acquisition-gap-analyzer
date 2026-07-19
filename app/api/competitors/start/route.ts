@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     const selectedUrl = normalizeAndValidateUrl(body.selectedUrl);
     const sourceUrl = normalizeAndValidateUrl(body.sourceUrl);
     if (new URL(sourceUrl).hostname.replace(/^www\./, "") === new URL(selectedUrl).hostname.replace(/^www\./, "")) throw new Error("The competitor must use a different domain.");
-    const candidate = { name: new URL(selectedUrl).hostname.replace(/^www\./, ""), url: new URL(selectedUrl).origin };
+    const candidate = { name: new URL(selectedUrl).hostname.replace(/^www\./, ""), url: selectedUrl };
 
     const job = await startWebsiteCrawl(candidate.url, firecrawlKey);
     const token = signCompetitorJob({

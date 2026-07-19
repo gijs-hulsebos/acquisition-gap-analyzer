@@ -1,13 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { analyzeCrawl } from "../lib/analyzer";
 import { competitorFromPages } from "../lib/competitor-scan";
 import { signCompetitorJob, verifyCompetitorJob } from "../lib/competitor-token";
 import { DEMO_COMPETITOR_RESULT, DEMO_RESULT } from "../lib/fixture";
+import { getWebsiteCrawlProgress, startWebsiteCrawl } from "../lib/firecrawl";
 import type { CrawlPage } from "../lib/types";
 
 function page(url: string, title: string, html: string, links: string[] = []): CrawlPage {
   return { url, title, description: "", html, markdown: "", links, statusCode: 200 };
 }
+
+afterEach(() => vi.unstubAllGlobals());
 
 function ecommercePages(addLabel = "In winkelmandje") {
   return [
@@ -132,4 +135,33 @@ describe("optional competitor scan", () => {
     expect(() => verifyCompetitorJob(`${token}x`, "test-secret")).toThrow("Invalid competitor scan token");
   });
 
+});
+
+describe("localized crawl seeds", () => {
+  it("preserves a submitted locale path when starting Firecrawl", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: true, id: "crawl-locale" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await startWebsiteCrawl("https://sostrenegrene.com/nl", "test-key");
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { url: string };
+
+    expect(request.url).toBe("https://sostrenegrene.com/nl");
+    expect(job.rootUrl).toBe("https://sostrenegrene.com/nl");
+  });
+
+  it("selects the submitted locale page as the homepage instead of the global root", async () => {
+    const payload = {
+      status: "completed",
+      data: [
+        { markdown: "Global selector", html: "<h1>All over the world</h1>", metadata: { sourceURL: "https://sostrenegrene.com/", title: "All over the world" } },
+        { markdown: "Dutch products", html: "<h1>Søstrene Grene Nederland</h1>", metadata: { sourceURL: "https://sostrenegrene.com/nl", title: "Søstrene Grene Nederland" } },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 })));
+
+    const progress = await getWebsiteCrawlProgress({ id: "crawl-locale", rootUrl: "https://sostrenegrene.com/nl", pageLimit: 8 }, "test-key");
+
+    expect(progress.pages[0]?.url).toBe("https://sostrenegrene.com/nl");
+    expect(progress.pages[0]?.title).toBe("Søstrene Grene Nederland");
+  });
 });
