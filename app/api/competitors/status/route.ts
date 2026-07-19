@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { competitorFromPages } from "@/lib/competitor-scan";
 import { verifyCompetitorJob } from "@/lib/competitor-token";
 import { getWebsiteCrawlProgress } from "@/lib/firecrawl";
+import { captureCustomerJourney } from "@/lib/firecrawl-journey";
 import type { CompetitorScanStatusResponse } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -12,6 +13,7 @@ export async function GET(request: Request) {
   if (!firecrawlKey) return NextResponse.json({ error: "Competitor scanning requires FIRECRAWL_API_KEY." }, { status: 503 });
 
   try {
+    const startedAt = Date.now();
     const token = new URL(request.url).searchParams.get("token") || "";
     const state = verifyCompetitorJob(token, process.env.COMPETITOR_SCAN_SECRET || firecrawlKey);
     const progress = await getWebsiteCrawlProgress(state.job, firecrawlKey, 7_000);
@@ -24,7 +26,8 @@ export async function GET(request: Request) {
       return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
     }
 
-    const competitor = await competitorFromPages(state.competitor.url, progress.pages, process.env.OPENROUTER_API_KEY);
+    const observedJourney = await captureCustomerJourney(state.competitor.url, firecrawlKey).catch(() => null);
+    const competitor = await competitorFromPages(state.competitor.url, progress.pages, Date.now() - startedAt < 20_000 ? process.env.OPENROUTER_API_KEY : undefined, observedJourney);
     const response: CompetitorScanStatusResponse = {
       status: "complete",
       result: {

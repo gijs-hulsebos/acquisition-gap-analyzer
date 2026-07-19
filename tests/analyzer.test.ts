@@ -4,6 +4,7 @@ import { competitorFromPages } from "../lib/competitor-scan";
 import { signCompetitorJob, verifyCompetitorJob } from "../lib/competitor-token";
 import { DEMO_COMPETITOR_RESULT, DEMO_RESULT } from "../lib/fixture";
 import { getWebsiteCrawlProgress, startWebsiteCrawl } from "../lib/firecrawl";
+import { parseObservedJourney } from "../lib/firecrawl-journey";
 import type { CrawlPage } from "../lib/types";
 
 function page(url: string, title: string, html: string, links: string[] = []): CrawlPage {
@@ -175,5 +176,42 @@ describe("localized crawl seeds", () => {
 
     expect(progress.pages[0]?.url).toBe("https://sostrenegrene.com/nl");
     expect(progress.pages[0]?.title).toBe("Søstrene Grene Nederland");
+  });
+});
+
+describe("browser-verified customer journeys", () => {
+  const observedJson = JSON.stringify({
+    status: "complete",
+    clicks: 3,
+    stages: [
+      { pageType: "Homepage", title: "Shop", url: "https://shop.nl/", action: "Clicked Add to cart", ctaText: "Add to cart" },
+      { pageType: "Cart", title: "Cart", url: "https://shop.nl/cart", action: "Opened cart", ctaText: "Cart" },
+      { pageType: "Checkout", title: "Checkout", url: "https://shop.nl/checkout", action: "Opened checkout", ctaText: "Checkout" },
+    ],
+    limitation: "",
+  });
+
+  it("uses the performed browser actions as the click count", () => {
+    const observed = parseObservedJourney(observedJson, "https://shop.nl/");
+    const result = analyzeCrawl(ecommercePages("Kies product"), "https://shop.nl/", 100, observed);
+    expect(result.overview.estimatedClicks).toBe(3);
+    expect(result.journey.primary.name).toContain("Browser-verified");
+    expect(result.gaps[2].evidence[0].statement).toContain("Browser-verified");
+  });
+
+  it("applies the same observed journey to a competitor comparison", async () => {
+    const observed = parseObservedJourney(observedJson, "https://shop.nl/");
+    const competitor = await competitorFromPages("https://shop.nl/", ecommercePages("Kies product"), undefined, observed);
+    expect(competitor.estimatedClicks).toBe(3);
+    expect(competitor.findings[2].evidence[0].statement).toContain("Browser-verified");
+  });
+
+  it("rejects a claimed complete path without actual cart and checkout stages", () => {
+    const invalid = parseObservedJourney(JSON.stringify({ status: "complete", clicks: 3, stages: [
+      { pageType: "Homepage", title: "Shop", url: "https://shop.nl/", action: "Clicked Add to cart", ctaText: "Add to cart" },
+      { pageType: "Product", title: "Product", url: "https://shop.nl/product", action: "Viewed product", ctaText: "Product" },
+      { pageType: "Other", title: "Other", url: "https://shop.nl/other", action: "Continued", ctaText: "Continue" },
+    ] }), "https://shop.nl/");
+    expect(invalid).toBeNull();
   });
 });

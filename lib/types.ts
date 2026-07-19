@@ -17,6 +17,13 @@ export type JourneyStage = {
   friction: string | null;
 };
 
+export type ObservedJourney = {
+  status: "complete" | "incomplete";
+  clicks: number | null;
+  stages: Array<Pick<JourneyStage, "pageType" | "title" | "url" | "action" | "ctaText">>;
+  limitation: string;
+};
+
 export type CustomerJourney = {
   status: "complete" | "incomplete";
   name: string;

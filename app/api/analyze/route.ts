@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { DEMO_RESULT } from "@/lib/fixture";
 import { crawlWebsite } from "@/lib/firecrawl";
+import { captureCustomerJourney } from "@/lib/firecrawl-journey";
 import { buildReportFromPages } from "@/lib/report";
 import { normalizeAndValidateUrl } from "@/lib/url";
 
@@ -54,16 +55,16 @@ export async function POST(request: Request) {
 
   const startedAt = Date.now();
   try {
-    const pages = await within(
-      crawlWebsite(url, firecrawlKey),
-      32_000,
-      "The first-party crawl took too long to return evidence. Please try again.",
-    );
+    const [pages, observedJourney] = await Promise.all([
+      within(crawlWebsite(url, firecrawlKey), 32_000, "The first-party crawl took too long to return evidence. Please try again."),
+      within(captureCustomerJourney(url, firecrawlKey), 28_000, "Journey verification timed out.").catch(() => null),
+    ]);
     const report = await buildReportFromPages(
       pages,
       url,
       Date.now() - startedAt,
       Date.now() - startedAt < 42_000 ? process.env.OPENROUTER_API_KEY : undefined,
+      observedJourney,
     );
     const result = { ...report, stats: { ...report.stats, processingMs: Date.now() - startedAt } };
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
