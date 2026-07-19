@@ -155,6 +155,8 @@ describe("localized crawl seeds", () => {
     const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { url: string };
 
     expect(request.url).toBe("https://sostrenegrene.com/nl");
+    expect(request).not.toHaveProperty("prompt");
+    expect(request).toMatchObject({ maxConcurrency: 2, scrapeOptions: { maxAge: 86_400_000 } });
     expect(job.rootUrl).toBe("https://sostrenegrene.com/nl");
   });
 

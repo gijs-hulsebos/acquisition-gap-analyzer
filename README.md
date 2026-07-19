@@ -33,6 +33,8 @@ Competitor analysis is optional and never delays or changes the original report.
 - `/api/analyze` returns the complete company report.
 - `/api/compare` runs the same pipeline and returns comparison data.
 - Transient Firecrawl 429/502/503/504 responses are retried twice.
+- Crawl options are supplied directly; no extra Firecrawl prompt-generation step is used.
+- Crawl concurrency is limited and cached page content may be reused for faster, more stable scans.
 - OpenRouter changes wording only; it cannot change scores, evidence or click counts.
 
 ## Environment

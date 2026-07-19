@@ -22,5 +22,6 @@ export async function analyzeWebsite(
 ): Promise<AnalysisResult> {
   const startedAt = Date.now();
   const pages = await crawlWebsite(url, firecrawlKey);
-  return buildReportFromPages(pages, url, Date.now() - startedAt, openrouterKey);
+  const crawlMs = Date.now() - startedAt;
+  return buildReportFromPages(pages, url, crawlMs, crawlMs < 42_000 ? openrouterKey : undefined);
 }
