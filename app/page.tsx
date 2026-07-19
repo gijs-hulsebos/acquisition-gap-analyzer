@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import type { AnalysisResult, CompetitorScanResult, CompetitorScanStartResponse, CompetitorScanStatusResponse, Gap, PublicCompetitor } from "@/lib/types";
 import { readAnalysisResponse } from "@/lib/api-response";
+import { DEMO_RESULT } from "@/lib/fixture";
 
 type View = "landing" | "loading" | "results";
 type DashboardSection = "overview" | "gaps" | "evidence";
@@ -317,14 +318,21 @@ function PageComposition({ result }: { result: AnalysisResult }) {
 
 function GapCard({ gap }: { gap: Gap }) {
   const Icon = GAP_ICONS[gap.id];
+  const score = gap.score ?? 0;
   return (
     <details className={`finding-row ${gap.rank === 1 ? "finding-row-primary" : ""}`} open={gap.rank === 1 ? true : undefined}>
       <summary>
-        <span className="finding-rank">0{gap.rank}</span>
+        <span
+          className={`finding-score-ring ${gap.score === null ? "finding-score-ring-empty" : ""}`}
+          style={{ "--finding-score": `${score * 3.6}deg` } as CSSProperties}
+          aria-label={gap.score === null ? `${gap.title}: insufficient data` : `${gap.title}: ${gap.score}%`}
+        >
+          <strong>{gap.score === null ? "—" : `${gap.score}%`}</strong>
+        </span>
         <span className={`gap-icon gap-icon-${gap.id}`}><Icon size={19} /></span>
         <div className="finding-title">
           <div>{gap.score === null ? <span className="severity">Insufficient data</span> : <span className={`severity severity-${gap.severity.toLowerCase()}`}>{gap.severity}</span>}</div>
-          <h3>{gap.title} <span className="finding-score">{gap.score === null ? "Insufficient data" : `${gap.score}/100`}</span></h3>
+          <h3>{gap.title}</h3>
           <p>{gap.summary}</p>
           <div className="finding-action-preview"><span>Recommended action</span><strong>{gap.nextAction}</strong></div>
         </div>
@@ -729,6 +737,15 @@ export default function Home() {
       return;
     }
 
+    if (mode === "fixture") {
+      setError("");
+      setLoadingStep(4);
+      setResult(DEMO_RESULT);
+      setView("results");
+      window.scrollTo({ top: 0, behavior: "auto" });
+      return;
+    }
+
     setError("");
     setLoadingStep(0);
     setView("loading");
@@ -744,7 +761,7 @@ export default function Home() {
       const response = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mode === "fixture" ? { mode: "fixture" } : { url }),
+        body: JSON.stringify({ url }),
         signal: controller.signal,
       });
       const payload = await readAnalysisResponse(response);
