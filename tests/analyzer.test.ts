@@ -29,6 +29,26 @@ function ecommercePages(addLabel = "In winkelmandje") {
   ];
 }
 
+function directProductPages(homepageAdd = false) {
+  const homepageButton = homepageAdd ? `<button aria-label="In winkelmandje"></button>` : "";
+  return [
+    page("https://direct-shop.nl/", "Direct Shop", `
+      <h1>Producten voor iedere dag</h1>
+      <article class="product-card">
+        <a href="/product/lepel">Glazen lepel</a><span>€ 1,69</span>${homepageButton}
+      </article>
+      <article class="product-card"><a href="/product/beker">Glazen beker</a><span>€ 3,49</span></article>
+      <p>Bekijk en bestel ons complete assortiment praktische producten.</p>
+    `, ["https://direct-shop.nl/product/lepel", "https://direct-shop.nl/product/beker"]),
+    page("https://direct-shop.nl/product/lepel", "Glazen lepel", `
+      <h1>Glazen lepel</h1><p>Een praktische glazen lepel voor dagelijks gebruik.</p>
+      <button>In winkelmandje</button>
+    `),
+    page("https://direct-shop.nl/cart", "Winkelmandje", `<h1>Winkelmandje</h1><a href="/checkout">Afrekenen</a>`),
+    page("https://direct-shop.nl/checkout", "Afrekenen", `<h1>Afrekenen</h1><p>Vul je gegevens in om te bestellen.</p>`),
+  ];
+}
+
 describe("simple acquisition report", () => {
   it("always returns exactly the three requested findings", () => {
     const result = analyzeCrawl(ecommercePages(), "https://shop.nl/", 100);
@@ -61,6 +81,25 @@ describe("simple acquisition report", () => {
     const result = analyzeCrawl(ecommercePages(), "https://shop.nl/", 100);
     expect(result.overview.primaryConversion).toBe("Checkout");
     expect(result.overview.estimatedClicks).toBe(5);
+  });
+
+  it("counts a landing-page Add to cart route one click shorter than opening a product first", () => {
+    const landingPageAdd = analyzeCrawl(directProductPages(true), "https://direct-shop.nl/", 100);
+    const productPageAdd = analyzeCrawl(directProductPages(false), "https://direct-shop.nl/", 100);
+
+    expect(landingPageAdd.overview.estimatedClicks).toBe(3);
+    expect(productPageAdd.overview.estimatedClicks).toBe(4);
+    expect(productPageAdd.overview.estimatedClicks! - landingPageAdd.overview.estimatedClicks!).toBe(1);
+    expect(landingPageAdd.journey.primary.stages.map((stage) => stage.pageType)).toEqual(["Homepage", "Cart", "Checkout"]);
+    expect(landingPageAdd.journey.primary.stages[0].ctaText).toBe("In winkelmandje");
+  });
+
+  it("calculates the journey independently for a second scan", () => {
+    const company = analyzeCrawl(directProductPages(false), "https://direct-shop.nl/", 100);
+    const competitor = analyzeCrawl(directProductPages(true), "https://direct-shop.nl/", 100);
+
+    expect(company.gaps.find((gap) => gap.id === "customer-journey-path")?.summary).toContain("4 clicks");
+    expect(competitor.gaps.find((gap) => gap.id === "customer-journey-path")?.summary).toContain("3 clicks");
   });
 
   it("estimates the journey when a dynamic Add to cart label is not captured", () => {
