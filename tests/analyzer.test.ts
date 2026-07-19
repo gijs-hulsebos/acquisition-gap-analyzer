@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { analyzeCrawl } from "../lib/analyzer";
-import { competitorFromPages } from "../lib/competitor-scan";
-import { signCompetitorJob, verifyCompetitorJob } from "../lib/competitor-token";
 import { DEMO_COMPETITOR_RESULT, DEMO_RESULT } from "../lib/fixture";
 import { getWebsiteCrawlProgress, startWebsiteCrawl } from "../lib/firecrawl";
-import { parseObservedJourney } from "../lib/firecrawl-journey";
 import type { CrawlPage } from "../lib/types";
 
 function page(url: string, title: string, html: string, links: string[] = []): CrawlPage {
@@ -124,33 +121,32 @@ describe("optional competitor scan", () => {
     expect(competitor?.estimatedClicks).toBe(3);
     expect(competitor?.findings).toHaveLength(3);
   });
-  it("runs the identical three findings for a supplied competitor URL", async () => {
-    const competitor = await competitorFromPages("https://shop.nl/", ecommercePages());
-    expect(competitor.findings.map((finding) => finding.id)).toEqual([
+  it("runs the identical three findings for a supplied comparison website", () => {
+    const competitor = analyzeCrawl(ecommercePages(), "https://shop.nl/", 0);
+    expect(competitor.gaps.map((finding) => finding.id)).toEqual([
       "offer-clarity",
       "cta-clarity",
       "customer-journey-path",
     ]);
-    expect(competitor.estimatedClicks).toBe(5);
-    expect(competitor.pagesAnalyzed).toBe(5);
-  });
-
-  it("signs crawl state and rejects a modified job token", () => {
-    const state = {
-      version: 1 as const,
-      issuedAt: Date.now(),
-      sourceUrl: "https://shop.nl",
-      competitor: { name: "Kitchen Store", url: "https://kitchen-store.nl" },
-      job: { id: "crawl-123", rootUrl: "https://kitchen-store.nl", pageLimit: 8 },
-    };
-    const token = signCompetitorJob(state, "test-secret");
-    expect(verifyCompetitorJob(token, "test-secret")).toEqual(state);
-    expect(() => verifyCompetitorJob(`${token}x`, "test-secret")).toThrow("Invalid competitor scan token");
+    expect(competitor.overview.estimatedClicks).toBe(5);
+    expect(competitor.pages).toHaveLength(5);
   });
 
 });
 
 describe("localized crawl seeds", () => {
+  it("retries a transient Firecrawl 502 before succeeding", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "Bad gateway" }), { status: 502 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, id: "crawl-retried" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const job = await startWebsiteCrawl("https://shop.nl", "test-key");
+
+    expect(job.id).toBe("crawl-retried");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("preserves a submitted locale path when starting Firecrawl", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: true, id: "crawl-locale" }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
@@ -176,42 +172,5 @@ describe("localized crawl seeds", () => {
 
     expect(progress.pages[0]?.url).toBe("https://sostrenegrene.com/nl");
     expect(progress.pages[0]?.title).toBe("Søstrene Grene Nederland");
-  });
-});
-
-describe("browser-verified customer journeys", () => {
-  const observedJson = JSON.stringify({
-    status: "complete",
-    clicks: 3,
-    stages: [
-      { pageType: "Homepage", title: "Shop", url: "https://shop.nl/", action: "Clicked Add to cart", ctaText: "Add to cart" },
-      { pageType: "Cart", title: "Cart", url: "https://shop.nl/cart", action: "Opened cart", ctaText: "Cart" },
-      { pageType: "Checkout", title: "Checkout", url: "https://shop.nl/checkout", action: "Opened checkout", ctaText: "Checkout" },
-    ],
-    limitation: "",
-  });
-
-  it("uses the performed browser actions as the click count", () => {
-    const observed = parseObservedJourney(observedJson, "https://shop.nl/");
-    const result = analyzeCrawl(ecommercePages("Kies product"), "https://shop.nl/", 100, observed);
-    expect(result.overview.estimatedClicks).toBe(3);
-    expect(result.journey.primary.name).toContain("Browser-verified");
-    expect(result.gaps[2].evidence[0].statement).toContain("Browser-verified");
-  });
-
-  it("applies the same observed journey to a competitor comparison", async () => {
-    const observed = parseObservedJourney(observedJson, "https://shop.nl/");
-    const competitor = await competitorFromPages("https://shop.nl/", ecommercePages("Kies product"), undefined, observed);
-    expect(competitor.estimatedClicks).toBe(3);
-    expect(competitor.findings[2].evidence[0].statement).toContain("Browser-verified");
-  });
-
-  it("rejects a claimed complete path without actual cart and checkout stages", () => {
-    const invalid = parseObservedJourney(JSON.stringify({ status: "complete", clicks: 3, stages: [
-      { pageType: "Homepage", title: "Shop", url: "https://shop.nl/", action: "Clicked Add to cart", ctaText: "Add to cart" },
-      { pageType: "Product", title: "Product", url: "https://shop.nl/product", action: "Viewed product", ctaText: "Product" },
-      { pageType: "Other", title: "Other", url: "https://shop.nl/other", action: "Continued", ctaText: "Continue" },
-    ] }), "https://shop.nl/");
-    expect(invalid).toBeNull();
   });
 });

@@ -1,22 +1,11 @@
 import { NextResponse } from "next/server";
 import { DEMO_RESULT } from "@/lib/fixture";
-import { crawlWebsite } from "@/lib/firecrawl";
-import { captureCustomerJourney } from "@/lib/firecrawl-journey";
-import { buildReportFromPages } from "@/lib/report";
+import { analyzeWebsite } from "@/lib/report";
+import { analysisErrorResponse } from "@/lib/route-error";
 import { normalizeAndValidateUrl } from "@/lib/url";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-function within<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-    promise.then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      (error) => { clearTimeout(timer); reject(error); },
-    );
-  });
-}
 
 export async function POST(request: Request) {
   let body: { url?: unknown; mode?: unknown };
@@ -53,26 +42,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const startedAt = Date.now();
   try {
-    const [pages, observedJourney] = await Promise.all([
-      within(crawlWebsite(url, firecrawlKey), 32_000, "The first-party crawl took too long to return evidence. Please try again."),
-      within(captureCustomerJourney(url, firecrawlKey), 28_000, "Journey verification timed out.").catch(() => null),
-    ]);
-    const report = await buildReportFromPages(
-      pages,
-      url,
-      Date.now() - startedAt,
-      Date.now() - startedAt < 42_000 ? process.env.OPENROUTER_API_KEY : undefined,
-      observedJourney,
-    );
-    const result = { ...report, stats: { ...report.stats, processingMs: Date.now() - startedAt } };
+    const result = await analyzeWebsite(url, firecrawlKey, process.env.OPENROUTER_API_KEY);
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "The website could not be analyzed.";
-    return NextResponse.json(
-      { error: message },
-      { status: /too long/i.test(message) ? 504 : 502 },
-    );
+    return analysisErrorResponse(error);
   }
 }

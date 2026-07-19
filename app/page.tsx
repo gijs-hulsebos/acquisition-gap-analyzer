@@ -24,8 +24,8 @@ import {
   Sparkles,
   Target,
 } from "lucide-react";
-import type { AnalysisResult, CompetitorScanResult, CompetitorScanStartResponse, CompetitorScanStatusResponse, Gap, PublicCompetitor } from "@/lib/types";
-import { readAnalysisResponse } from "@/lib/api-response";
+import type { AnalysisResult, CompetitorScanResult, Gap, PublicCompetitor } from "@/lib/types";
+import { readAnalysisResponse, readJsonResponse } from "@/lib/api-response";
 import { DEMO_COMPETITOR_RESULT, DEMO_RESULT } from "@/lib/fixture";
 
 type View = "landing" | "loading" | "results";
@@ -526,22 +526,6 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
   const [competitorUrl, setCompetitorUrl] = useState("");
   const [error, setError] = useState("");
 
-  async function pollScan(token: string) {
-    const deadline = Date.now() + 90_000;
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => window.setTimeout(resolve, 2_500));
-      const response = await fetch(`/api/competitors/status?token=${encodeURIComponent(token)}`, { cache: "no-store" });
-      const payload = await response.json() as CompetitorScanStatusResponse & { error?: string };
-      if (!response.ok) throw new Error(payload.error || "The competitor crawl status could not be read.");
-      if (payload.status === "processing") continue;
-      if (payload.status === "failed") throw new Error(payload.error);
-      setScan(payload.result);
-      setStatus("complete");
-      return;
-    }
-    throw new Error("The competitor website is still processing. Try the scan again in a moment.");
-  }
-
   async function startScan() {
     if (!competitorUrl.trim()) {
       setError("Enter a competitor website URL.");
@@ -550,9 +534,9 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
     setStatus("crawling");
     setError("");
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+    const timeout = window.setTimeout(() => controller.abort(), 58_000);
     try {
-      const response = await fetch("/api/competitors/start", {
+      const response = await fetch("/api/compare", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(result.mode === "fixture" ? { mode: "fixture", selectedUrl: competitorUrl } : {
@@ -561,17 +545,11 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
         }),
         signal: controller.signal,
       });
-      const payload = await response.json() as CompetitorScanStartResponse & { error?: string };
-      if (!response.ok) throw new Error(payload.error || "The competitor crawl could not be started.");
-      window.clearTimeout(timeout);
-      if (payload.status === "complete") {
-        setScan(payload.result);
-        setStatus("complete");
-        return;
-      }
-      await pollScan(payload.token);
+      const payload = await readJsonResponse<CompetitorScanResult>(response, "The competitor comparison returned no result.");
+      setScan(payload);
+      setStatus("complete");
     } catch (caught) {
-      setError(caught instanceof DOMException && caught.name === "AbortError" ? "The competitor crawl could not be started in time." : caught instanceof Error ? caught.message : "The competitor scan failed.");
+      setError(caught instanceof DOMException && caught.name === "AbortError" ? "The competitor comparison took too long. Please try again." : caught instanceof Error ? caught.message : "The competitor comparison failed.");
       setStatus("error");
     } finally {
       window.clearTimeout(timeout);
@@ -643,7 +621,7 @@ function TechnicalDetails({ result }: { result: AnalysisResult }) {
               <div key={category.id}><span>{category.label}</span><small>{category.weight}% weight</small><strong>{category.score ?? "Not scored"}</strong></div>
             ))}
           </div>
-          <p>{result.readiness.formula} · {result.score === null ? `A score requires at least three useful representative pages; ${result.stats.pagesCrawled} page${result.stats.pagesCrawled === 1 ? " was" : "s were"} returned.` : `Conversion readiness: ${result.score}%.`}</p>
+          <p>{result.readiness.formula} · {result.score === null ? `A score requires at least two useful representative pages; ${result.stats.pagesCrawled} page${result.stats.pagesCrawled === 1 ? " was" : "s were"} returned.` : `Conversion readiness: ${result.score}%.`}</p>
         </section>
 
         <section className="crawl-detail" aria-labelledby="crawl-detail-heading">

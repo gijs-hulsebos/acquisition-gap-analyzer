@@ -1,6 +1,7 @@
 import { analyzeCrawl } from "./analyzer";
 import { enhanceFindings } from "./llm";
-import type { AnalysisResult, CrawlPage, ObservedJourney } from "./types";
+import { crawlWebsite } from "./firecrawl";
+import type { AnalysisResult, CrawlPage } from "./types";
 
 /** Build the deterministic report and apply the optional wording-only LLM pass. */
 export async function buildReportFromPages(
@@ -8,8 +9,18 @@ export async function buildReportFromPages(
   url: string,
   processingMs: number,
   openrouterKey?: string,
-  observedJourney?: ObservedJourney | null,
 ): Promise<AnalysisResult> {
-  const deterministic = analyzeCrawl(pages, url, processingMs, observedJourney);
+  const deterministic = analyzeCrawl(pages, url, processingMs);
   return enhanceFindings(deterministic, openrouterKey);
+}
+
+/** The single analysis pipeline used by company and competitor scans. */
+export async function analyzeWebsite(
+  url: string,
+  firecrawlKey: string,
+  openrouterKey?: string,
+): Promise<AnalysisResult> {
+  const startedAt = Date.now();
+  const pages = await crawlWebsite(url, firecrawlKey);
+  return buildReportFromPages(pages, url, Date.now() - startedAt, openrouterKey);
 }

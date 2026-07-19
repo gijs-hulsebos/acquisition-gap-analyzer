@@ -17,13 +17,6 @@ export type JourneyStage = {
   friction: string | null;
 };
 
-export type ObservedJourney = {
-  status: "complete" | "incomplete";
-  clicks: number | null;
-  stages: Array<Pick<JourneyStage, "pageType" | "title" | "url" | "action" | "ctaText">>;
-  limitation: string;
-};
-
 export type CustomerJourney = {
   status: "complete" | "incomplete";
   name: string;
@@ -150,15 +143,6 @@ export type CompetitorScanResult = {
   competitor: PublicCompetitor | null;
   note: string;
 };
-
-export type CompetitorScanStartResponse =
-  | { status: "processing"; token: string; competitor: { name: string; url: string } }
-  | { status: "complete"; result: CompetitorScanResult };
-
-export type CompetitorScanStatusResponse =
-  | { status: "processing"; competitor: { name: string; url: string } }
-  | { status: "complete"; result: CompetitorScanResult }
-  | { status: "failed"; error: string };
 
 export type CrawlPage = {
   url: string;

@@ -3,6 +3,8 @@ import { canonicalSiteUrl, normalizeAndValidateUrl } from "./url";
 
 const FIRECRAWL_URL = "https://api.firecrawl.dev/v2";
 const POLL_MS = 900;
+const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
+const RETRY_DELAYS = [350, 900];
 
 export type CrawlOptions = {
   deadlineMs?: number;
@@ -56,6 +58,47 @@ async function errorMessage(response: Response) {
   }
 }
 
+export class FirecrawlError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly operation: "start" | "status",
+  ) {
+    super(message);
+    this.name = "FirecrawlError";
+  }
+}
+
+async function firecrawlRequest(
+  operation: "start" | "status",
+  request: () => Promise<Response>,
+) {
+  for (let attempt = 0; ; attempt += 1) {
+    let response: Response;
+    try {
+      response = await request();
+    } catch (error) {
+      if (attempt < RETRY_DELAYS.length) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt]));
+        continue;
+      }
+      const reason = error instanceof Error ? error.message : "Network request failed.";
+      throw new FirecrawlError(`Firecrawl ${operation} request failed: ${reason}`, 503, operation);
+    }
+
+    if (response.ok) return response;
+    if (RETRYABLE_STATUS.has(response.status) && attempt < RETRY_DELAYS.length) {
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt]));
+      continue;
+    }
+    throw new FirecrawlError(
+      `Firecrawl ${operation} request failed: ${await errorMessage(response)}`,
+      response.status,
+      operation,
+    );
+  }
+}
+
 function toPages(documents: FirecrawlDocument[], baseUrl: string): CrawlPage[] {
   const seen = new Set<string>();
   return documents.flatMap((document) => {
@@ -105,7 +148,7 @@ export async function startWebsiteCrawl(input: string, apiKey: string, limit = 8
   const normalizedInput = normalizeAndValidateUrl(input);
   const rootUrl = canonicalSiteUrl(normalizedInput, normalizedInput) || normalizedInput;
   const pageLimit = Math.min(8, Math.max(3, limit));
-  const start = await fetch(`${FIRECRAWL_URL}/crawl`, {
+  const start = await firecrawlRequest("start", () => fetch(`${FIRECRAWL_URL}/crawl`, {
     method: "POST",
     headers: headers(apiKey),
     body: JSON.stringify({
@@ -128,8 +171,7 @@ export async function startWebsiteCrawl(input: string, apiKey: string, limit = 8
       },
     }),
     signal: AbortSignal.timeout(options.startTimeoutMs ?? 7_000),
-  });
-  if (!start.ok) throw new Error(await errorMessage(start));
+  }));
   const started = await start.json() as { success?: boolean; id?: string; error?: string };
   if (!started.success || !started.id) throw new Error(started.error || "Firecrawl did not start the crawl.");
 
@@ -137,12 +179,11 @@ export async function startWebsiteCrawl(input: string, apiKey: string, limit = 8
 }
 
 export async function getWebsiteCrawlProgress(job: WebsiteCrawlJob, apiKey: string, pollTimeoutMs = 5_000): Promise<WebsiteCrawlProgress> {
-  const response = await fetch(`${FIRECRAWL_URL}/crawl/${job.id}`, {
+  const response = await firecrawlRequest("status", () => fetch(`${FIRECRAWL_URL}/crawl/${job.id}`, {
     headers: headers(apiKey),
     cache: "no-store",
     signal: AbortSignal.timeout(pollTimeoutMs),
-  });
-  if (!response.ok) throw new Error(await errorMessage(response));
+  }));
   const status = await response.json() as CrawlStatus;
   const pages = selectPages(toPages(status.data || [], job.rootUrl), job.rootUrl, job.pageLimit);
   if (status.status === "failed" || status.status === "cancelled") {

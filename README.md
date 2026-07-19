@@ -9,12 +9,12 @@ The demo opens instantly without calling Firecrawl or OpenRouter. It compares pr
 ## Flow
 
 1. The user submits a URL.
-2. One bounded Firecrawl job reads up to eight pages on that domain.
+2. One bounded Firecrawl job reads up to eight representative pages on that domain.
 3. Deterministic extraction builds evidence for the landing-page offer, CTAs and customer journey.
 4. OpenRouter optionally rewrites the finished findings in concise language without changing scores or evidence.
 5. The dashboard shows the overview, three findings and crawl details.
 6. After the main report is complete, the user may enter one competitor URL.
-7. That domain receives the same bounded eight-page crawl, deterministic analysis and optional OpenRouter wording pass as the original website.
+7. The same `analyzeWebsite` pipeline runs for that URL: one crawl, the same deterministic analysis and the same optional OpenRouter wording pass.
 8. The dashboard compares both websites using the same three findings, evidence and journey estimate.
 
 ## Findings
@@ -23,9 +23,17 @@ The demo opens instantly without calling Firecrawl or OpenRouter. It compares pr
 - **CTA Clarity** — whether the commercial calls to action are specific and consistent.
 - **Customer Journey Path** — estimated clicks from the landing page to checkout, starting with an empty cart. For non-ecommerce websites it estimates the path to the primary conversion interface.
 
-The analyzer reads public HTML, Markdown and links. It does not click buttons, add products, submit forms or complete checkout. Post-click cart and checkout states may therefore be inferred and are labelled in the evidence.
+The analyzer reads public HTML, Markdown and links. It does not launch a second scrape or browser-agent session, click buttons, add products, submit forms or complete checkout. A journey receives a click count only when every required page and clickable transition is present in the crawl evidence; otherwise it is labelled `Incomplete journey`.
 
 Competitor analysis is optional and never delays or changes the original report. There is no automatic competitor search: the user supplies the comparison URL. The session-only result is not stored in a database.
+
+## Backend structure
+
+- `analyzeWebsite(url)` is the only live analysis pipeline.
+- `/api/analyze` returns the complete company report.
+- `/api/compare` runs the same pipeline and returns comparison data.
+- Transient Firecrawl 429/502/503/504 responses are retried twice.
+- OpenRouter changes wording only; it cannot change scores, evidence or click counts.
 
 ## Environment
 

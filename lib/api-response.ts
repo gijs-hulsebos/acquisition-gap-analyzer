@@ -6,17 +6,13 @@ function fallbackMessage(status: number) {
   return "The website could not be analyzed.";
 }
 
-export async function readAnalysisResponse(response: Response): Promise<AnalysisResult> {
+export async function readJsonResponse<T>(response: Response, fallback: string): Promise<T> {
   const text = await response.text();
-  let payload: unknown = null;
-
-  if (text.trim()) {
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      if (!response.ok) throw new Error(fallbackMessage(response.status));
-      throw new Error("The analysis service returned an unreadable response. Please try again.");
-    }
+  let payload: unknown;
+  try {
+    payload = text.trim() ? JSON.parse(text) : null;
+  } catch {
+    throw new Error(response.ok ? "The server returned an unreadable response." : fallbackMessage(response.status));
   }
 
   if (!response.ok) {
@@ -25,6 +21,12 @@ export async function readAnalysisResponse(response: Response): Promise<Analysis
       : fallbackMessage(response.status);
     throw new Error(message);
   }
+  if (!payload) throw new Error(fallback);
+  return payload as T;
+}
+
+export async function readAnalysisResponse(response: Response): Promise<AnalysisResult> {
+  const payload = await readJsonResponse<unknown>(response, "The analysis service returned an empty response.");
 
   if (!payload || typeof payload !== "object" || !("gaps" in payload)) {
     throw new Error("The analysis service returned an incomplete report. Please try again.");

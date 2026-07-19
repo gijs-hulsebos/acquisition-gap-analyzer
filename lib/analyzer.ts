@@ -8,7 +8,6 @@ import type {
   JourneyAnalysis,
   JourneyPageType,
   JourneyStage,
-  ObservedJourney,
   ReadinessCategory,
   Severity,
 } from "./types";
@@ -267,30 +266,7 @@ function offerCategory(homepage: PageFacts, pages: PageFacts[], primaryOffer: st
   ], !whatClear ? `Name ${primaryOffer} directly in the landing-page heading.` : !commercial ? "Add one explicit action describing the next customer step." : `Keep the offer and action clear for ${targetCustomer}.`);
 }
 
-function buildEcommerceJourney(pages: PageFacts[], homepage: PageFacts, primaryOffer: string, observed?: ObservedJourney | null): JourneyAnalysis {
-  if (observed?.status === "complete" && observed.clicks !== null) {
-    const stages = observed.stages.map((stage, index): JourneyStage => ({ ...stage, order: index + 1, nextStepVisible: true, necessary: true, friction: null }));
-    return {
-      businessModels: ["Ecommerce"],
-      primaryOffer,
-      primaryConversionType: "Checkout",
-      primary: {
-        status: "complete",
-        name: "Browser-verified landing page to checkout",
-        conversionType: "Checkout",
-        startUrl: homepage.url,
-        destinationUrl: stages.at(-1)?.url || null,
-        clicksToInterface: observed.clicks,
-        additionalObservableActions: null,
-        stages,
-        shortestRoute: [homepage.url, ...stages.map((stage) => stage.url)],
-        alternativeRoute: null,
-        confidence: "High",
-        limitations: [observed.limitation],
-      },
-      secondary: [],
-    };
-  }
+function buildEcommerceJourney(pages: PageFacts[], homepage: PageFacts, primaryOffer: string): JourneyAnalysis {
   const typed = pages.map((page) => ({ page, type: pageType(page, homepage) }));
   const homepageAdd = addToCartAction(homepage);
   const categoryPage = typed.find((item) => item.type === "Category" && linkedAction(homepage, item.page))?.page || null;
@@ -384,9 +360,8 @@ function journeyCategory(homepage: PageFacts, journey: JourneyAnalysis) {
   const complete = journey.primary.status === "complete";
   const steps = journey.primary.clicksToInterface;
   const ecommerce = journey.businessModels.includes("Ecommerce");
-  const browserVerified = journey.primary.limitations.some((item) => /Firecrawl browser session/i.test(item));
   const score = complete ? steps !== null && steps <= (ecommerce ? 4 : 1) ? 95 : steps !== null && steps <= (ecommerce ? 5 : 2) ? 80 : 55 : 10;
-  return category("customer-journey-path", "Customer Journey Path", score, journey.primary.confidence, complete ? `From an empty cart, the ${browserVerified ? "browser-verified" : "evidenced"} landing-page-to-${ecommerce ? "checkout" : "conversion"} path takes ${steps} click${steps === 1 ? "" : "s"}.` : "Incomplete journey: product discovery or the primary conversion action could not be verified.", [{ statement: complete ? `${browserVerified ? "Browser-verified" : "Evidenced"} path: ${journey.primary.stages.map((stage) => stage.pageType).join(" → ")} (${steps} clicks).` : journey.primary.limitations[0], pageLabel: complete ? "Customer journey" : "Incomplete journey", url: homepage.url }], complete ? "Keep the shortest route to checkout visible." : ecommerce ? "Link product discovery clearly to a product with Add to cart." : "Expose one complete route to the primary conversion interface.");
+  return category("customer-journey-path", "Customer Journey Path", score, journey.primary.confidence, complete ? `From an empty cart, the evidenced landing-page-to-${ecommerce ? "checkout" : "conversion"} path takes ${steps} click${steps === 1 ? "" : "s"}.` : "Incomplete journey: product discovery or the primary conversion action could not be verified.", [{ statement: complete ? `Evidenced path: ${journey.primary.stages.map((stage) => stage.pageType).join(" → ")} (${steps} clicks).` : journey.primary.limitations[0], pageLabel: complete ? "Customer journey" : "Incomplete journey", url: homepage.url }], complete ? "Keep the shortest route to checkout visible." : ecommerce ? "Link product discovery clearly to a product with Add to cart." : "Expose one complete route to the primary conversion interface.");
 }
 
 function finding(categoryItem: ReadinessCategory, homepage: PageFacts, rank: number): Gap {
@@ -401,14 +376,14 @@ function scoreLabel(score: number | null) {
   return "Leaking demand";
 }
 
-export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, processingMs: number, observedJourney?: ObservedJourney | null): AnalysisResult {
+export function analyzeCrawl(crawledPages: CrawlPage[], analyzedUrl: string, processingMs: number): AnalysisResult {
   const pages = buildFacts(crawledPages, analyzedUrl);
   const homepage = findHomepage(pages, analyzedUrl);
   if (!homepage) throw new Error("A homepage could not be identified in the crawl results.");
   const model = classifyCommercialModel(pages);
   const primaryOffer = inferPrimaryOffer(homepage, pages, model);
   const market = inferMarket(pages, model);
-  const journey = model === "ecommerce" || model === "marketplace" ? buildEcommerceJourney(pages, homepage, primaryOffer, observedJourney) : buildGeneralJourney(pages, homepage, primaryOffer, model);
+  const journey = model === "ecommerce" || model === "marketplace" ? buildEcommerceJourney(pages, homepage, primaryOffer) : buildGeneralJourney(pages, homepage, primaryOffer, model);
   const rawCategories = [offerCategory(homepage, pages, primaryOffer, market.targetCustomer), ctaCategory(homepage, pages, model), journeyCategory(homepage, journey)];
   const usefulPages = pages.filter((page) => page.statusCode < 400 && page.bodyText.length >= 80).length;
   const sufficient = usefulPages >= 2;
