@@ -31,6 +31,12 @@ type CrawlStatus = {
   error?: string;
 };
 
+type ScrapeStatus = {
+  success?: boolean;
+  data?: FirecrawlDocument;
+  error?: string;
+};
+
 export type WebsiteCrawlJob = {
   id: string;
   rootUrl: string;
@@ -100,7 +106,7 @@ function selectPages(pages: CrawlPage[], rootUrl: string, limit: number) {
 
 /** One bounded first-party crawl. No search, competitors, mapping pass or per-page scrape loop. */
 export async function startWebsiteCrawl(input: string, apiKey: string, limit = 8, options: CrawlOptions = {}): Promise<WebsiteCrawlJob> {
-  const rootUrl = new URL(normalizeAndValidateUrl(input)).origin;
+  const rootUrl = normalizeAndValidateUrl(input);
   const pageLimit = Math.min(8, Math.max(3, limit));
   const start = await fetch(`${FIRECRAWL_URL}/crawl`, {
     method: "POST",
@@ -133,6 +139,28 @@ export async function startWebsiteCrawl(input: string, apiKey: string, limit = 8
   return { id: started.id, rootUrl, pageLimit };
 }
 
+/** Exact-page fallback for crawls that complete without returning readable documents. */
+export async function scrapeWebsitePage(input: string, apiKey: string, timeoutMs = 15_000): Promise<CrawlPage | null> {
+  const url = normalizeAndValidateUrl(input);
+  const response = await fetch(`${FIRECRAWL_URL}/scrape`, {
+    method: "POST",
+    headers: headers(apiKey),
+    body: JSON.stringify({
+      url,
+      formats: ["markdown", "html", "links"],
+      onlyMainContent: false,
+      blockAds: true,
+      removeBase64Images: true,
+      timeout: timeoutMs,
+    }),
+    signal: AbortSignal.timeout(timeoutMs + 1_000),
+  });
+  if (!response.ok) throw new Error(await errorMessage(response));
+  const scraped = await response.json() as ScrapeStatus;
+  if (!scraped.success || !scraped.data) return null;
+  return toPages([scraped.data], url)[0] || null;
+}
+
 export async function getWebsiteCrawlProgress(job: WebsiteCrawlJob, apiKey: string, pollTimeoutMs = 5_000): Promise<WebsiteCrawlProgress> {
   const response = await fetch(`${FIRECRAWL_URL}/crawl/${job.id}`, {
     headers: headers(apiKey),
@@ -162,6 +190,10 @@ export async function crawlWebsite(input: string, apiKey: string, limit = 8, opt
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
 
-  if (!latest.length) throw new Error("Firecrawl returned no readable pages within the scan time.");
+  if (!latest.length) {
+    const fallback = await scrapeWebsitePage(input, apiKey, Math.min(options.scrapeTimeoutMs ?? 15_000, 10_000));
+    if (fallback) return [fallback];
+    throw new Error("Firecrawl returned no readable pages within the scan time.");
+  }
   return latest;
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyCompetitorJob } from "@/lib/competitor-token";
-import { getWebsiteCrawlProgress } from "@/lib/firecrawl";
+import { getWebsiteCrawlProgress, scrapeWebsitePage } from "@/lib/firecrawl";
 import { buildAnalysisResult } from "@/lib/report";
 import type { CompetitorScanStatusResponse } from "@/lib/types";
 
@@ -23,7 +23,12 @@ export async function GET(request: Request) {
       const response: CompetitorScanStatusResponse = { status: "processing", competitor: state.competitor };
       return NextResponse.json(response, { status: 202, headers: { "Cache-Control": "no-store" } });
     }
-    if (progress.status === "failed" || !progress.pages.length) {
+    let pages = progress.pages;
+    if (progress.status === "failed" || !pages.length) {
+      const fallback = await scrapeWebsitePage(state.competitor.url, firecrawlKey, 10_000).catch(() => null);
+      if (fallback) pages = [fallback];
+    }
+    if (!pages.length) {
       const response: CompetitorScanStatusResponse = {
         status: "failed",
         error: progress.error || "The competitor website returned no readable pages.",
@@ -33,7 +38,7 @@ export async function GET(request: Request) {
 
     // Finalize with the same deterministic analysis and optional LLM wording
     // used by /api/analyze. Only the dashboard presentation differs.
-    const result = await buildAnalysisResult(progress.pages, state.competitor.url, startedAt);
+    const result = await buildAnalysisResult(pages, state.competitor.url, startedAt);
     const response: CompetitorScanStatusResponse = { status: "complete", result };
     return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

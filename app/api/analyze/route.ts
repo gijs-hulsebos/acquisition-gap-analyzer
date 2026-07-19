@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   try {
     const pages = await withTimeout(
       crawlWebsite(url, firecrawlKey),
-      32_000,
+      45_000,
       "The first-party crawl took too long to return evidence. Please try again.",
     );
     const elapsed = Date.now() - startedAt;
