@@ -24,7 +24,7 @@ import {
   Sparkles,
   Target,
 } from "lucide-react";
-import type { AnalysisResult, CompetitorScanStartResponse, CompetitorScanStatusResponse, Gap } from "@/lib/types";
+import type { AnalysisResult, Gap } from "@/lib/types";
 import { readAnalysisResponse } from "@/lib/api-response";
 import { DEMO_RESULT } from "@/lib/fixture";
 
@@ -529,34 +529,6 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
   const [competitor, setCompetitor] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState("");
 
-  async function readCompetitorResponse<T>(response: Response): Promise<T & { error?: string }> {
-    const text = await response.text();
-    try {
-      return JSON.parse(text) as T & { error?: string };
-    } catch {
-      throw new Error(response.ok
-        ? "The competitor scan returned an unreadable response."
-        : "The competitor scan service is temporarily unavailable.");
-    }
-  }
-
-  async function pollScan(token: string) {
-    const deadline = Date.now() + 12 * 60_000;
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => window.setTimeout(resolve, 2_000));
-      const response = await fetch(`/api/competitors/status?token=${encodeURIComponent(token)}`, { cache: "no-store" });
-      if (response.status === 502 || response.status === 503 || response.status === 504) continue;
-      const payload = await readCompetitorResponse<CompetitorScanStatusResponse>(response);
-      if (!response.ok) throw new Error(payload.error || "The competitor scan status could not be read.");
-      if (payload.status === "processing") continue;
-      if (payload.status === "failed") throw new Error(payload.error);
-      setCompetitor(payload.result);
-      setStatus("complete");
-      return;
-    }
-    throw new Error("The competitor crawl did not complete before the scan expired. Please try again.");
-  }
-
   async function runScan(event: FormEvent) {
     event.preventDefault();
     if (!competitorUrl.trim()) {
@@ -569,14 +541,14 @@ function PublicCompetitorScan({ result }: { result: AnalysisResult }) {
     setCompetitor(null);
     setError("");
     try {
-      const response = await fetch("/api/competitors/start", {
+      const response = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: competitorUrl }),
       });
-      const payload = await readCompetitorResponse<CompetitorScanStartResponse>(response);
-      if (!response.ok) throw new Error(payload.error || "The competitor scan could not be started.");
-      await pollScan(payload.token);
+      const payload = await readAnalysisResponse(response);
+      setCompetitor(payload);
+      setStatus("complete");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The competitor scan failed.");
       setStatus("error");

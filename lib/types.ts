@@ -128,30 +128,6 @@ export type AnalysisResult = {
   llmEnhanced: boolean;
 };
 
-export type PublicCompetitor = {
-  name: string;
-  url: string;
-  pagesAnalyzed: number;
-  score: number | null;
-  estimatedClicks: number | null;
-  findings: Gap[];
-};
-
-export type CompetitorScanResult = {
-  sourceUrl: string;
-  searchedAt: string;
-  competitor: PublicCompetitor | null;
-  note: string;
-};
-
-export type CompetitorScanStartResponse =
-  | { status: "processing"; token: string; competitor: { name: string; url: string } };
-
-export type CompetitorScanStatusResponse =
-  | { status: "processing"; competitor: { name: string; url: string } }
-  | { status: "complete"; result: AnalysisResult }
-  | { status: "failed"; error: string };
-
 export type CrawlPage = {
   url: string;
   title: string;

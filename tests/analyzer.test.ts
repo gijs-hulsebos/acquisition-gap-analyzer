@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { analyzeCrawl } from "../lib/analyzer";
-import { filterCompetitorCandidates, selectDirectCompetitor } from "../lib/competitor-scan";
-import { signCompetitorJob, verifyCompetitorJob } from "../lib/competitor-token";
 import type { CrawlPage } from "../lib/types";
 
 function page(url: string, title: string, html: string, links: string[] = []): CrawlPage {
@@ -76,51 +74,5 @@ describe("simple acquisition report", () => {
     const result = analyzeCrawl(ecommercePages().slice(0, 1), "https://shop.nl/", 100);
     expect(result.score).toBeNull();
     expect(result.readiness.status).toBe("insufficient-data");
-  });
-});
-
-describe("optional competitor scan", () => {
-  it("rejects the submitted domain, directories and duplicate domains", () => {
-    const candidates = filterCompetitorCandidates([
-      { title: "Submitted company", description: "", url: "https://shop.nl/products" },
-      { title: "Review", description: "", url: "https://trustpilot.com/review/shop.nl" },
-      { title: "Kitchen Store", description: "Similar Dutch shop", url: "https://competitor.nl/products" },
-      { title: "Duplicate result", description: "", url: "https://competitor.nl/about" },
-    ], "https://shop.nl/");
-    expect(candidates).toEqual([{ title: "Kitchen Store", description: "Similar Dutch shop", url: "https://competitor.nl" }]);
-  });
-
-  it("rejects another regional domain belonging to the submitted company", () => {
-    const candidates = filterCompetitorCandidates([
-      { title: "Simple Shop Belgium", description: "Belgian store", url: "https://simple-shop.be" },
-      { title: "Kitchen Store", description: "Dutch kitchen shop", url: "https://kitchen-store.nl" },
-    ], "https://simple-shop.nl", "Simple Shop");
-    expect(candidates.map((candidate) => candidate.url)).toEqual(["https://kitchen-store.nl"]);
-  });
-
-  it("selects only one competitor", async () => {
-    const selected = await selectDirectCompetitor({
-      url: "https://shop.nl/",
-      companyName: "Simple Shop",
-      primaryOffer: "Kitchen products and cookware",
-      businessModel: "Ecommerce",
-    }, [
-      { title: "Kitchen Store", description: "Dutch kitchen products and cookware", url: "https://kitchen-store.nl" },
-      { title: "Furniture Store", description: "Dutch furniture", url: "https://furniture-store.nl" },
-    ]);
-    expect(selected?.url).toBe("https://kitchen-store.nl");
-  });
-
-  it("signs crawl state and rejects a modified job token", () => {
-    const state = {
-      version: 1 as const,
-      issuedAt: Date.now(),
-      sourceUrl: "https://shop.nl",
-      competitor: { name: "Kitchen Store", url: "https://kitchen-store.nl" },
-      job: { id: "crawl-123", rootUrl: "https://kitchen-store.nl", pageLimit: 3 },
-    };
-    const token = signCompetitorJob(state, "test-secret");
-    expect(verifyCompetitorJob(token, "test-secret")).toEqual(state);
-    expect(() => verifyCompetitorJob(`${token}x`, "test-secret")).toThrow("Invalid competitor scan token");
   });
 });
